@@ -47,7 +47,7 @@ fi
 
 # Copy patched test_search.cpp directly (no patch needed)
 echo "  copying patched test_search.cpp..."
-cp "$ROOT/cpp/src/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
+cp "$ROOT/cpp/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
