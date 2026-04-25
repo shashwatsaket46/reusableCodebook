@@ -79,7 +79,7 @@ def prepare_glove200_100k():
     h5_path = cache / "glove-200-angular.hdf5"
     if not h5_path.exists():
         # Try Kaggle dataset first (attach shashwatsaket/glove-200 to notebook)
-        kaggle_path = Path("/kaggle/input/datasets/shashwatsaket/glove-200")
+        kaggle_path = Path("/kaggle/input/datasets/shashwatsaket/glove-200/glove-200-angular.hdf5")
         if kaggle_path.exists():
             print(f"  copying from Kaggle dataset {kaggle_path} ...")
             shutil.copy(kaggle_path, h5_path)
