@@ -10,7 +10,7 @@ mkdir -p results/logs results/pq_pickles results/figures
 
 export DATASETS="${DATASETS:-glove200_100k openai1536 openai3072}"
 echo "Datasets: $DATASETS"
-echo "Logs:     $ROOT/results/logs"
+echo "Logs:     $ROOT/results/logs/"
 echo
 
 LOG="$ROOT/results/logs/run_all.log"
