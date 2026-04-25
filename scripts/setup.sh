@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clone upstream Extended-RaBitQ, vendor Eigen + hnswlib, apply patch, build.
+# Clone upstream Extended-RaBitQ, vendor Eigen + hnswlib, copy patched src, build.
 # Idempotent: skips steps already done.
 set -euo pipefail
 
@@ -45,19 +45,9 @@ if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
   rm -rf hnswlib_src
 fi
 
-# Apply patch (idempotent: skip if marker already in source)
-cd "$UPSTREAM"
-if ! grep -q "EVAL_KS" src/test_search.cpp; then
-  echo "  applying per-k recall patch..."
-  patch -p1 < "$ROOT/cpp/patches/0001-per-k-recall-and-exhaustive-nprobe.patch"
-else
-  echo "  patch already applied, skipping"
-fi
-
-# Disable HIGH_ACC_FAST_SCAN to reduce peak RAM during indexing
-# (mainly matters for 3072d on 32 GB Kaggle instances)
-sed -i 's|^#define HIGH_ACC_FAST_SCAN|// #define HIGH_ACC_FAST_SCAN|' \
-  src/test_search.cpp src/create_index.cpp || true
+# Copy patched test_search.cpp directly (no patch needed)
+echo "  copying patched test_search.cpp..."
+cp "$ROOT/cpp/src/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
