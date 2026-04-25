@@ -1,0 +1,15 @@
+data/
+results/logs/
+results/pq_pickles/
+third_party/
+build/
+bin/
+__pycache__/
+*.pyc
+*.npy
+*.fvecs
+*.ivecs
+*.index
+*.pkl
+.DS_Store
+.ipynb_checkpoints/

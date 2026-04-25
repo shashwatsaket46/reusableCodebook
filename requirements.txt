@@ -1,0 +1,6 @@
+numpy>=1.24
+faiss-cpu>=1.7
+matplotlib>=3.7
+datasets>=2.14
+psutil
+huggingface_hub
