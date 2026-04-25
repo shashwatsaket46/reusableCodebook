@@ -4,8 +4,8 @@
 Idempotent: skips datasets whose base.fvecs already exists.
 Outputs land in third_party/Extended-RaBitQ/data/<name>/.
 
-GloVe-200: reads from Kaggle dataset at /kaggle/input/glove-200/
-           (attach shashwatsaket/glove-200 to your notebook)
+GloVe-200: reads from Kaggle dataset shashwatsaket/glove-200
+           (attach it to your notebook before running)
 OpenAI:    streams from HuggingFace.
 """
 import os, sys, struct, gc, shutil
@@ -78,16 +78,26 @@ def prepare_glove200_100k():
     cache.mkdir(parents=True, exist_ok=True)
     h5_path = cache / "glove-200-angular.hdf5"
     if not h5_path.exists():
-        # Try Kaggle dataset first (attach shashwatsaket/glove-200 to notebook)
-        kaggle_path = Path("/kaggle/input/datasets/shashwatsaket/glove-200/glove-200-angular.hdf5")
-        if kaggle_path.exists():
-            print(f"  copying from Kaggle dataset {kaggle_path} ...")
+        # Search common Kaggle input locations for the file
+        candidates = [
+            Path("/kaggle/input/glove-200/glove-200-angular.hdf5"),
+            Path("/kaggle/input/datasets/shashwatsaket/glove-200/glove-200-angular.hdf5"),
+        ]
+        # Also search dynamically under /kaggle/input/
+        import glob
+        found = glob.glob("/kaggle/input/**/glove-200-angular.hdf5", recursive=True)
+        candidates += [Path(p) for p in found]
+
+        kaggle_path = next((p for p in candidates if p.exists()), None)
+        if kaggle_path:
+            print(f"  copying from {kaggle_path} ...")
             shutil.copy(kaggle_path, h5_path)
         else:
             import urllib.request
             url = "http://ann-benchmarks.com/glove-200-angular.hdf5"
             print(f"  downloading {url} ...")
             urllib.request.urlretrieve(url, h5_path)
+
     with h5py.File(h5_path, "r") as f:
         X_full  = np.array(f["train"], dtype=np.float32)
         Xq_full = np.array(f["test"],  dtype=np.float32)
