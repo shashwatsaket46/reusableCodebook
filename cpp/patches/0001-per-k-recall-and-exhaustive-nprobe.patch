@@ -1,0 +1,194 @@
+--- a/src/test_search.cpp	2026-04-25 22:37:04.896083799 +0000
++++ b/src/test_search.cpp	2026-04-25 22:36:36.827087794 +0000
+@@ -1,5 +1,6 @@
+-#define HIGH_ACC_FAST_SCAN
++// #define HIGH_ACC_FAST_SCAN
+ #define EIGEN_DONT_PARALLELIZE
++#include <array>
+ #include <fstream>
+ #include <iostream>
+ #include <unordered_set>
+@@ -10,16 +11,12 @@
+ #include "utils/IO.hpp"
+ #include "utils/StopW.hpp"
+ 
+-size_t TOPK = 100;
++static constexpr std::array<size_t, 6> EVAL_KS = {1, 2, 4, 8, 16, 32};
++static constexpr size_t EVAL_KMAX = 32;
++
++size_t TOPK = 32;
+ size_t ROUND = 3;
+ 
+-std::vector<size_t> get_nprobes(
+-    const IVF& ivf,
+-    const std::vector<size_t>& all_nprobes,
+-    FloatRowMat& rotated_query,
+-    FloatRowMat& data,
+-    UintRowMat& gt
+-);
+ int main(int argc, char* argv[]) {
+     assert(argc == 3);
+     char* DATASET = argv[1];
+@@ -58,26 +55,10 @@
+     IVF ivf;
+     ivf.load(ivf_file);
+ 
+-    std::vector<size_t> all_nprobes;
+-    all_nprobes.push_back(5);
+-    for (size_t i = 10; i < 200; i += 10) {
+-        all_nprobes.push_back(i);
+-    }
+-    for (size_t i = 200; i < 400; i += 40) {
+-        all_nprobes.push_back(i);
+-    }
+-    for (size_t i = 400; i <= 1500; i += 100) {
+-        all_nprobes.push_back(i);
+-    }
+-    for (size_t i = 2000; i <= 4000; i += 500) {
+-        all_nprobes.push_back(i);
+-    }
+-
+-    all_nprobes.push_back(6000);
+-    all_nprobes.push_back(10000);
+-    all_nprobes.push_back(15000);
++    // Exhaustive: probe every cluster
++    std::vector<size_t> nprobes = {ivf.k()};
++    size_t length = nprobes.size();
+ 
+-    size_t total_count = NQ * TOPK;
+     StopW stopw;
+ 
+     FloatRowMat padded_query(NQ, ivf.padded_dim());
+@@ -91,13 +72,17 @@
+     rp.rotate(padded_query, rotated_query);
+     float rotate_time = stopw.getElapsedTimeMicro();
+ 
+-    auto nprobes = get_nprobes(ivf, all_nprobes, rotated_query, data, gt);
+-    size_t length = nprobes.size();
++    size_t total_count = NQ * TOPK;
+ 
+     std::vector<std::vector<float>> all_qps(ROUND, std::vector<float>(length));
+     std::vector<std::vector<float>> all_recall(ROUND, std::vector<float>(length));
+     std::vector<std::vector<float>> all_ratio(ROUND, std::vector<float>(length));
+ 
++    // per-k hit counters [ROUND][length][EVAL_KS.size()]
++    std::vector<std::vector<std::vector<size_t>>> all_hits(
++        ROUND, std::vector<std::vector<size_t>>(
++            length, std::vector<size_t>(EVAL_KS.size(), 0)));
++
+     for (size_t r = 0; r < ROUND; r++) {
+         for (size_t i = 0; i < length; ++i) {
+             size_t nprobe = nprobes[i];
+@@ -105,20 +90,38 @@
+             double total_ratio = 0;
+             float total_time = 0;
+             PID results[TOPK];
+-            for (size_t i = 0; i < NQ; i++) {
++
++            std::fill(all_hits[r][i].begin(), all_hits[r][i].end(), 0);
++
++            for (size_t qi = 0; qi < NQ; qi++) {
+                 stopw.reset();
+-                ivf.search(&rotated_query(i, 0), data.data(), TOPK, nprobe, results);
++                ivf.search(&rotated_query(qi, 0), data.data(), TOPK, nprobe, results);
+                 total_time += stopw.getElapsedTimeMicro();
+-                total_ratio += get_ratio(i, query, data, gt, results, TOPK, L2Sqr);
++                total_ratio += get_ratio(qi, query, data, gt, results, TOPK, L2Sqr);
++
++                // standard recall (top-TOPK in top-TOPK GT)
+                 for (size_t j = 0; j < TOPK; j++) {
+-                    for (size_t k = 0; k < TOPK; k++) {
+-                        if (gt(i, k) == results[j]) {
++                    for (size_t kk = 0; kk < TOPK; kk++) {
++                        if (gt(qi, kk) == results[j]) {
+                             total_correct++;
+                             break;
+                         }
+                     }
+                 }
++
++                // per-k recall: is top-1 GT in top-k results?
++                PID top1_gt = gt(qi, 0);
++                for (size_t ki = 0; ki < EVAL_KS.size(); ki++) {
++                    size_t k = EVAL_KS[ki];
++                    for (size_t j = 0; j < k && j < TOPK; j++) {
++                        if (results[j] == top1_gt) {
++                            all_hits[r][i][ki]++;
++                            break;
++                        }
++                    }
++                }
+             }
++
+             float qps = NQ / ((total_time + rotate_time) / 1e6);
+             float recall = static_cast<float>(total_correct) / total_count;
+             float ratio = total_ratio / total_count;
+@@ -146,54 +149,23 @@
+         csv_data << qps << ',';
+         csv_data << recall << ',';
+         csv_data << ratio << '\n';
+-    }
+-    csv_data.close();
+-
+-    return 0;
+-}
+ 
+-std::vector<size_t> get_nprobes(
+-    const IVF& ivf,
+-    const std::vector<size_t>& all_nprobes,
+-    FloatRowMat& rotated_query,
+-    FloatRowMat& data,
+-    UintRowMat& gt
+-) {
+-    StopW stopw;
+-    size_t NQ = rotated_query.rows();
+-    size_t total_count = TOPK * NQ;
+-    float old_recall = 0;
+-    std::vector<size_t> nprobes;
+-
+-    for (auto nprobe : all_nprobes) {
+-        if (nprobe > ivf.k()) {
+-            break;
+-        }
+-        nprobes.push_back(nprobe);
+-
+-        size_t total_correct = 0;
+-        float total_time = 0;
+-        PID results[TOPK];
+-        for (size_t i = 0; i < NQ; i++) {
+-            stopw.reset();
+-            ivf.search(&rotated_query(i, 0), data.data(), TOPK, nprobe, results);
+-            total_time += stopw.getElapsedTimeMicro();
+-            for (size_t j = 0; j < TOPK; j++) {
+-                for (size_t k = 0; k < TOPK; k++) {
+-                    if (gt(i, k) == results[j]) {
+-                        total_correct++;
+-                        break;
+-                    }
+-                }
++        // Emit per-k recall lines (averaged over rounds)
++        for (size_t ki = 0; ki < EVAL_KS.size(); ki++) {
++            size_t k = EVAL_KS[ki];
++            double hit_sum = 0;
++            for (size_t r = 0; r < ROUND; r++) {
++                hit_sum += all_hits[r][i][ki];
+             }
++            float rec_k = static_cast<float>(hit_sum) / (ROUND * NQ);
++            std::cout << "EVAL bits=" << B
++                      << " nprobe=" << nprobe
++                      << " k=" << k
++                      << " recall=" << rec_k
++                      << std::endl;
+         }
+-        float recall = static_cast<float>(total_correct) / total_count;
+-        if (recall > 0.997 || recall - old_recall < 1e-5) {
+-            break;
+-        }
+-        std::cout << recall << '\t' << nprobe << std::endl << std::flush;
+-        old_recall = recall;
+     }
++    csv_data.close();
+ 
+-    return nprobes;
++    return 0;
+ }
