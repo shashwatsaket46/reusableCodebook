@@ -1,5 +1,14 @@
 #!/usr/bin/env python
-import os, sys, struct, gc
+"""Download and convert all configured datasets to fvecs/ivecs.
+
+Idempotent: skips datasets whose base.fvecs already exists.
+Outputs land in third_party/Extended-RaBitQ/data/<name>/.
+
+GloVe-200: reads from Kaggle dataset at /kaggle/input/glove-200/
+           (attach shashwatsaket/glove-200 to your notebook)
+OpenAI:    streams from HuggingFace.
+"""
+import os, sys, struct, gc, shutil
 from pathlib import Path
 import numpy as np
 import faiss
@@ -9,7 +18,7 @@ UPSTREAM = ROOT / "third_party" / "Extended-RaBitQ"
 DATA_BASE = UPSTREAM / "data"
 
 ENABLED = os.environ.get("DATASETS",
-    "glove200_100k openai1536 openai3072").split()
+                         "glove200_100k openai1536 openai3072").split()
 
 K_MAX = 32
 SEED = 42
@@ -64,14 +73,21 @@ def prepare_glove200_100k():
     if already_done(name):
         print(f"[{name}] already prepared; skipping"); return
     print(f"[{name}] preparing ...")
-    import h5py, urllib.request
+    import h5py
     cache = ROOT / "data" / "_cache"
     cache.mkdir(parents=True, exist_ok=True)
     h5_path = cache / "glove-200-angular.hdf5"
     if not h5_path.exists():
-        url = "http://ann-benchmarks.com/glove-200-angular.hdf5"
-        print(f"  downloading {url}")
-        urllib.request.urlretrieve(url, h5_path)
+        # Try Kaggle dataset first (attach shashwatsaket/glove-200 to notebook)
+        kaggle_path = Path("/kaggle/input/glove-200/glove-200-angular.hdf5")
+        if kaggle_path.exists():
+            print(f"  copying from Kaggle dataset {kaggle_path} ...")
+            shutil.copy(kaggle_path, h5_path)
+        else:
+            import urllib.request
+            url = "http://ann-benchmarks.com/glove-200-angular.hdf5"
+            print(f"  downloading {url} ...")
+            urllib.request.urlretrieve(url, h5_path)
     with h5py.File(h5_path, "r") as f:
         X_full  = np.array(f["train"], dtype=np.float32)
         Xq_full = np.array(f["test"],  dtype=np.float32)
@@ -106,8 +122,8 @@ def prepare_openai(name, dim, hf_repo, hf_col):
 
     rng  = np.random.RandomState(SEED)
     perm = rng.permutation(N_TOTAL)
-    X    = np.ascontiguousarray(emb[perm[:N_BASE]],         dtype=np.float32)
-    Xq   = np.ascontiguousarray(emb[perm[N_BASE:N_TOTAL]],  dtype=np.float32)
+    X    = np.ascontiguousarray(emb[perm[:N_BASE]],        dtype=np.float32)
+    Xq   = np.ascontiguousarray(emb[perm[N_BASE:N_TOTAL]], dtype=np.float32)
     del emb; gc.collect()
 
     build_gt_and_save(name, X, Xq, dim)
