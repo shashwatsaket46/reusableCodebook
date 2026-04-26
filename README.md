@@ -56,6 +56,23 @@ free -h | head -2
 
 ## Method
 
+### Configuration
+
+Most experiment knobs are now centralized in `config.yaml`:
+
+* Dataset shape/source knobs: `datasets.<name>.{dim,n_base,n_query,nlist,source}`
+* ExRaBitQ bits: `exrabitq_bits`
+* PQ bits + metric: `pq_bits`, `pq_metric`
+* Evaluation/reporting: `eval_ks`, `search_rounds`, `cpp.topk`
+* Reproducibility + plotting: `random_seed`, `plot.*`
+
+`DATASETS` env var still works and takes precedence over default dataset list from `config.yaml`.
+Example:
+
+```bash
+DATASETS="openai3072" bash run_all.sh
+```
+
 * **Datasets.**
   * GloVe-200: 100k base vectors, 10k queries, 200d (It is required to load the data to your working kaggle directory from http://ann-benchmarks.com/glove-200-angular.hdf5.
   * OpenAI-1536: 100k base, 1k queries, 1536d. Source: HuggingFace
@@ -64,11 +81,8 @@ free -h | head -2
   * All vectors L2-normalized; ground truth via FAISS `IndexFlatIP`.
 
 * **Quantizers.**
-  * **PQ** (FAISS `IndexPQ`, METRIC_INNER_PRODUCT): 2 bits/dim and 4 bits/dim.
-  * **Extended RaBitQ** (official C++): bits=3 (≡ 2-bit RaBitQ + sign,
-    3 bits/dim) and bits=5 (≡ 4-bit RaBitQ + sign, 5 bits/dim).
-    Note: the +1 bit is for the sign; the magnitude uses the listed
-    bits-per-coord.
+  * **PQ** (FAISS `IndexPQ`) uses `pq_bits` and `pq_metric` from `config.yaml`.
+  * **Extended RaBitQ** (official C++) uses `exrabitq_bits` from `config.yaml`.
 
 * **Search.** Exhaustive across the board:
   * PQ: flat asymmetric distance computation over all 100k codes.

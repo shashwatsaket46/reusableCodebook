@@ -3,7 +3,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM="$ROOT/third_party/Extended-RaBitQ"
-BITS="${BITS:-3 4}"
+if [ -z "${DATASETS:-}" ]; then
+  DATASETS="$(python "$ROOT/scripts/config_cli.py" datasets)"
+fi
+BITS="${BITS:-$(python "$ROOT/scripts/config_cli.py" exrabitq_bits)}"
 mkdir -p "$UPSTREAM/results/exrabitq" "$ROOT/results/logs"
 
 cd "$UPSTREAM/bin"

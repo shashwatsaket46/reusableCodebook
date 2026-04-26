@@ -4,3 +4,4 @@ matplotlib>=3.7
 datasets>=2.14
 psutil
 huggingface_hub
+PyYAML>=6.0

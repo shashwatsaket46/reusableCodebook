@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Build Extended-RaBitQ indexes at bits=3 (RaBitQ-2bit+sign equivalent)
-# and bits=5 (RaBitQ-4bit+sign equivalent).
+# Build Extended-RaBitQ indexes using config.yaml settings.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM="$ROOT/third_party/Extended-RaBitQ"
-NLIST="${NLIST:-256}"
-BITS="${BITS:-3 4}"
+
+if [ -z "${DATASETS:-}" ]; then
+  DATASETS="$(python "$ROOT/scripts/config_cli.py" datasets)"
+fi
+BITS="${BITS:-$(python "$ROOT/scripts/config_cli.py" exrabitq_bits)}"
 
 cd "$UPSTREAM/bin"
 for NAME in $DATASETS; do
+  NLIST="${NLIST:-$(python "$ROOT/scripts/config_cli.py" dataset_nlist "$NAME")}"
   for B in $BITS; do
     INDEX="../data/$NAME/ivf_exhaf${B}.index"
     if [ -f "$INDEX" ]; then

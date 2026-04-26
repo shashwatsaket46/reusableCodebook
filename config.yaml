@@ -1,0 +1,54 @@
+# config.yaml
+random_seed: 42
+
+datasets:
+  glove200_100k:
+    dim: 200
+    n_base: 100000
+    n_query: 10000
+    nlist: 256
+    source:
+      type: hdf5
+      kaggle_paths:
+        - /kaggle/input/glove-200/glove-200-angular.hdf5
+      url: http://ann-benchmarks.com/glove-200-angular.hdf5
+
+  openai1536:
+    dim: 1536
+    n_base: 100000
+    n_query: 1000
+    nlist: 256
+    source:
+      type: huggingface
+      repo: Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-1M
+      column: text-embedding-3-large-1536-embedding
+
+  openai3072:
+    dim: 3072
+    n_base: 100000
+    n_query: 1000
+    nlist: 64           # RAM-constrained at d=3072
+    source:
+      type: huggingface
+      repo: Qdrant/dbpedia-entities-openai3-text-embedding-3-large-3072-1M
+      column: text-embedding-3-large-3072-embedding
+
+# What to evaluate
+exrabitq_bits:  [2, 4]      # supported: 2, 3, 4, 5, 7, 8, 9
+pq_bits:        [2, 4]
+pq_metric:      inner_product   # inner_product | l2
+eval_ks:        [1, 2, 4, 8, 16, 32]
+search_rounds:  3
+
+# C++ behavior — does NOT change without rebuilding
+cpp:
+  topk: 32
+  high_acc_fast_scan: true   # leave true; false breaks search
+
+plot:
+  y_lim: [0.50, 1.01]
+  colors:
+    pq_2bit: tab:blue
+    exrabitq_2bit: tab:blue
+    pq_4bit: tab:red
+    exrabitq_4bit: tab:red

@@ -1,4 +1,3 @@
-#define HIGH_ACC_FAST_SCAN
 #define EIGEN_DONT_PARALLELIZE
 #include <array>
 #include <fstream>
@@ -7,15 +6,16 @@
 #include <vector>
 
 #include "defines.hpp"
+#include "experiment_config.hpp"
 #include "index/IVF.hpp"
 #include "utils/IO.hpp"
 #include "utils/StopW.hpp"
 
-static constexpr std::array<size_t, 6> EVAL_KS = {1, 2, 4, 8, 16, 32};
-static constexpr size_t EVAL_KMAX = 32;
+static constexpr auto EVAL_KS = EXP_EVAL_KS;
+static constexpr size_t EVAL_KMAX = EXP_EVAL_KMAX;
 
-size_t TOPK = 32;
-size_t ROUND = 3;
+size_t TOPK = EXP_TOPK;
+size_t ROUND = EXP_ROUND;
 
 int main(int argc, char* argv[]) {
     assert(argc == 3);
