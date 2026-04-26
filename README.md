@@ -45,9 +45,6 @@ Image("/kaggle/working/reusableCodebook/results/figures/recall_all_datasets.png"
 | Disk | ≥ 40 GB free | Datasets + indexes total ~25 GB |
 | OS | Linux (Ubuntu 22.04 tested) | macOS unsupported (no AVX-512) |
 
-**Kaggle CPU notebooks satisfy all of the above.** TPU and GPU instances
-typically lack AVX-512.
-
 Verify before running:
 
 ```bash
@@ -60,7 +57,7 @@ free -h | head -2
 ## Method
 
 * **Datasets.**
-  * GloVe-200: 100k base vectors, 10k queries, 200d.
+  * GloVe-200: 100k base vectors, 10k queries, 200d (It is required to load the data to your working kaggle directory from http://ann-benchmarks.com/glove-200-angular.hdf5.
   * OpenAI-1536: 100k base, 1k queries, 1536d. Source: HuggingFace
     `Qdrant/dbpedia-entities-openai3-text-embedding-3-large-1536-1M`.
   * OpenAI-3072: 100k base, 1k queries, 3072d. Same HF source family.
