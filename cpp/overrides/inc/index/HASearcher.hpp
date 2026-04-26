@@ -67,7 +67,7 @@ class HASearcher {
         } else if (ex_bits == 2) {
             IP_FUNC = IP64_fxu2;
         } else if (ex_bits == 1) {
-            IP_FUNC = IP64_fxu1;
+            IP_FUNC = IP_fxu1;
         }
         else if (ex_bits == 3) {
             IP_FUNC = IP64_fxu3;
