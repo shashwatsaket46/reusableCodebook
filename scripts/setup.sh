@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clone upstream Extended-RaBitQ, vendor Eigen + hnswlib, copy patched src, build.
+# Clone upstream Extended-RaBitQ, vendor deps, apply overrides, build.
 # Idempotent: skips steps already done.
 set -euo pipefail
 
@@ -33,6 +33,7 @@ if [ ! -e "$UPSTREAM/inc/third/Eigen" ]; then
   tar xzf eigen-3.4.0.tar.gz
   ln -sf eigen-3.4.0/Eigen Eigen
   rm -f eigen-3.4.0.tar.gz
+  cd "$ROOT"
 fi
 
 # hnswlib (header-only)
@@ -43,14 +44,29 @@ if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
   git clone --depth 1 https://github.com/nmslib/hnswlib.git hnswlib_src
   cp -r hnswlib_src/hnswlib hnswlib
   rm -rf hnswlib_src
+  cd "$ROOT"
 fi
 
-# Use clean upstream code (skip C++ patches to avoid API conflicts)
-python "$ROOT/scripts/generate_cpp_config.py"
-echo "  using clean upstream code (no per-k output from C++, known limitation)"
+# Apply our C++ overrides on top of upstream.
+# cpp/overrides/ mirrors the upstream tree:
+#   cpp/overrides/src/test_search.cpp -> $UPSTREAM/src/test_search.cpp
+#   cpp/overrides/inc/index/Quantizer.hpp -> $UPSTREAM/inc/index/Quantizer.hpp
+#   etc.
+if [ -d "$ROOT/cpp/overrides" ]; then
+  echo "  applying overrides from cpp/overrides/..."
+  cp -rv "$ROOT/cpp/overrides/." "$UPSTREAM/" | sed 's|^|    |'
+else
+  echo "  WARNING: cpp/overrides/ not found; building unmodified upstream"
+fi
+
+# (Optional) generate experiment_config.hpp into upstream/inc/ if you use it.
+# Currently unused — test_search.cpp hardcodes EVAL_KS — so this is a no-op.
+python "$ROOT/scripts/generate_cpp_config.py" 2>/dev/null || true
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
+
+# Clean any stale build artifacts (the override files have changed)
 echo "  cleaning old build artifacts..."
 rm -rf "$UPSTREAM/build" "$UPSTREAM/bin"
 
