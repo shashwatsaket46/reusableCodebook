@@ -27,7 +27,7 @@ datasets:
     dim: 3072
     n_base: 100000
     n_query: 1000
-    nlist: 64           # RAM-constrained at d=3072
+    nlist: 256           # RAM-constrained at d=3072
     source:
       type: huggingface
       repo: Qdrant/dbpedia-entities-openai3-text-embedding-3-large-3072-1M
