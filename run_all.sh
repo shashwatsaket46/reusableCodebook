@@ -46,7 +46,7 @@ echo "[4/7] Building Extended-RaBitQ indexes"
 cd "$UPSTREAM/bin"
 for NAME in $DATASETS; do
   if [ "$NAME" = "openai3072" ]; then NLIST=64; else NLIST=256; fi
-  for B in 3 5; do
+  for B in 3 4; do
     INDEX="../data/$NAME/ivf_exhaf${B}.index"
     if [ -f "$INDEX" ]; then
       echo "  [$NAME B=$B] index exists, skipping"
@@ -62,7 +62,7 @@ echo "[5/7] Running test_search"
 cd "$UPSTREAM/bin"
 mkdir -p "$UPSTREAM/results/exrabitq"
 for NAME in $DATASETS; do
-  for B in 3 5; do
+  for B in 3 4; do
     OUT="$ROOT/results/logs/exrabitq_${NAME}_b${B}.log"
     echo "=== test_search $NAME $B ==="
     ./test_search "$NAME" "$B" 2>&1 | tee "$OUT"
