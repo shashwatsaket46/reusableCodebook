@@ -49,9 +49,9 @@ plot:
   y_lim: [0.50, 1.01]
   colors:
     pq_2bit: tab:blue
-    exrabitq_2bit: tab:blue
+    exrabitq_2bit: tab:green
     pq_4bit: tab:red
-    exrabitq_4bit: tab:red
+    exrabitq_4bit: tab:violet
     pq_3bit: tab:green
-    exrabitq_3bit: tab:green
+    exrabitq_3bit: tab:yellow
     #add more colors if you add more bit widths
