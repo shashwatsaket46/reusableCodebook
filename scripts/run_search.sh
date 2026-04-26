@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM="$ROOT/third_party/Extended-RaBitQ"
-BITS="${BITS:-3 5}"
+BITS="${BITS:-3 4}"
 mkdir -p "$UPSTREAM/results/exrabitq" "$ROOT/results/logs"
 
 cd "$UPSTREAM/bin"
