@@ -45,15 +45,20 @@ if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
   rm -rf hnswlib_src
 fi
 
-# Keep original test_search from upstream (use stock version for stability)
+# Copy patched test_search.cpp from overrides (original stable version for per-k recall)
 python "$ROOT/scripts/generate_cpp_config.py"
-# Note: not patching test_search.cpp; using upstream baseline for now
-# cp "$ROOT/cpp/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
+echo "  copying stable test_search.cpp from overrides..."
+cp "$ROOT/cpp/overrides/src/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
+cp "$ROOT/cpp/overrides/src/create_index.cpp" "$UPSTREAM/src/create_index.cpp" 2>/dev/null || true
+
+# Copy header overrides if present
+if [ -d "$ROOT/cpp/overrides/inc" ]; then
+  echo "  copying header overrides..."
+  cp -r "$ROOT/cpp/overrides/inc/"* "$UPSTREAM/inc/" 2>/dev/null || true
+fi
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
-
-# Force clean rebuild to pick up new experiment config
 echo "  cleaning old build artifacts..."
 rm -rf "$UPSTREAM/build" "$UPSTREAM/bin"
 
