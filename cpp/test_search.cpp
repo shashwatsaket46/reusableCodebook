@@ -13,9 +13,8 @@
 
 static constexpr auto EVAL_KS = EXP_EVAL_KS;
 static constexpr size_t EVAL_KMAX = EXP_EVAL_KMAX;
-
-size_t TOPK = EXP_TOPK;
-size_t ROUND = EXP_ROUND;
+static constexpr size_t TOPK = EXP_TOPK;
+static constexpr size_t ROUND = EXP_ROUND;
 
 int main(int argc, char* argv[]) {
     assert(argc == 3);
