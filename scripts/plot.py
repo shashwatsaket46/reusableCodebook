@@ -21,14 +21,14 @@ DATASET_TITLES = {
     "openai3072":    ("OpenAI-3072, 1k queries",  3072),
 }
 EXR_LABELS = {3: "ExRaBitQ-2bit+sign (3 bits/dim)",
-              5: "ExRaBitQ-4bit+sign (5 bits/dim)"}
+              4: "ExRaBitQ-4bit+sign (4 bits/dim)"}
 ORDER = ["PQ-2bit", "ExRaBitQ-2bit+sign (3 bits/dim)",
-         "PQ-4bit", "ExRaBitQ-4bit+sign (5 bits/dim)"]
+         "PQ-4bit", "ExRaBitQ-4bit+sign (4 bits/dim)"]
 STYLES = {
     "PQ-2bit":                            ("o", "-",  "tab:blue"),
     "ExRaBitQ-2bit+sign (3 bits/dim)":    ("x", "--", "tab:blue"),
     "PQ-4bit":                            ("s", "-",  "tab:red"),
-    "ExRaBitQ-4bit+sign (5 bits/dim)":    ("x", "--", "tab:red"),
+    "ExRaBitQ-4bit (4 bits/dim)":    ("x", "--", "tab:red"),
 }
 
 def collect(name):
