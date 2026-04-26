@@ -45,11 +45,10 @@ if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
   rm -rf hnswlib_src
 fi
 
-# Copy patched test_search.cpp directly (no patch needed)
+# Keep original test_search from upstream (use stock version for stability)
 python "$ROOT/scripts/generate_cpp_config.py"
-echo "  copying patched test_search.cpp..."
-cp "$ROOT/cpp/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
-cp "$ROOT/cpp/experiment_config.hpp" "$UPSTREAM/src/experiment_config.hpp"
+# Note: not patching test_search.cpp; using upstream baseline for now
+# cp "$ROOT/cpp/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
