@@ -68,7 +68,7 @@ free -h | head -2
 
 * **Quantizers.**
   * **PQ** (FAISS `IndexPQ`, METRIC_INNER_PRODUCT): 2 bits/dim and 4 bits/dim.
-  * **Extended RaBitQ** (official C++): bits=3 (≡ binary RaBitQ + sign,
+  * **Extended RaBitQ** (official C++): bits=3 (≡ 2-bit RaBitQ + sign,
     3 bits/dim) and bits=5 (≡ 4-bit RaBitQ + sign, 5 bits/dim).
     Note: the +1 bit is for the sign; the magnitude uses the listed
     bits-per-coord.
