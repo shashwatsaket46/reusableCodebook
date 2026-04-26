@@ -26,7 +26,8 @@ echo "[3/7] IVF clustering"
 # nlist=256 for low/mid-dim, nlist=64 for 3072d (RAM-constrained)
 UPSTREAM="$ROOT/third_party/Extended-RaBitQ"
 for NAME in $DATASETS; do
-  if [ "$NAME" = "openai3072" ]; then NLIST=64; else NLIST=256; fi
+#  if [ "$NAME" = "openai3072" ]; then NLIST=64; else NLIST=256; fi
+  NLIST=256
   CENT="$UPSTREAM/data/$NAME/${NAME}_centroid_${NLIST}.fvecs"
   if [ -f "$CENT" ]; then
     echo "  [$NAME] centroids exist (nlist=$NLIST), skipping"
