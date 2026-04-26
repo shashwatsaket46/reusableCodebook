@@ -7,6 +7,7 @@ import gc
 import shutil
 import struct
 from pathlib import Path
+import warnings
 
 import faiss
 import numpy as np
@@ -93,13 +94,24 @@ def prepare_hdf5_dataset(name, ds_cfg, seed, k_max, metric):
             shutil.copy(kaggle_path, h5_path)
         else:
             import urllib.request
-            url = source["url"]
+            url = source.get("url", "")
+            if not url:
+                warnings.warn(f"[{name}] no local hdf5 found and no source.url configured; skipping")
+                return
             print(f"  downloading {url} ...")
-            urllib.request.urlretrieve(url, h5_path)
+            try:
+                urllib.request.urlretrieve(url, h5_path)
+            except Exception as e:
+                warnings.warn(f"[{name}] failed to download hdf5 from {url}: {e}; skipping")
+                return
 
-    with h5py.File(h5_path, "r") as f:
-        X_full  = np.array(f["train"], dtype=np.float32)
-        Xq_full = np.array(f["test"],  dtype=np.float32)
+    try:
+        with h5py.File(h5_path, "r") as f:
+            X_full  = np.array(f["train"], dtype=np.float32)
+            Xq_full = np.array(f["test"],  dtype=np.float32)
+    except Exception as e:
+        warnings.warn(f"[{name}] failed to open/read hdf5 at {h5_path}: {e}; skipping")
+        return
     rng = np.random.RandomState(seed)
     X = X_full[rng.choice(len(X_full), n_base, replace=False)]
     Xq = Xq_full[rng.choice(len(Xq_full), n_query, replace=False)]
@@ -155,12 +167,15 @@ if __name__ == "__main__":
     metric = str(cfg.get("pq_metric", "inner_product")).strip().lower()
 
     for name in enabled:
-        ds_cfg = cfg["datasets"][name]
-        src_type = ds_cfg.get("source", {}).get("type")
-        if src_type == "hdf5":
-            prepare_hdf5_dataset(name, ds_cfg, seed, k_max, metric)
-        elif src_type == "huggingface":
-            prepare_hf_dataset(name, ds_cfg, seed, k_max, metric)
-        else:
-            print(f"[{name}] unsupported source.type={src_type!r}; skipping")
+        try:
+            ds_cfg = cfg["datasets"][name]
+            src_type = ds_cfg.get("source", {}).get("type")
+            if src_type == "hdf5":
+                prepare_hdf5_dataset(name, ds_cfg, seed, k_max, metric)
+            elif src_type == "huggingface":
+                prepare_hf_dataset(name, ds_cfg, seed, k_max, metric)
+            else:
+                print(f"[{name}] unsupported source.type={src_type!r}; skipping")
+        except Exception as e:
+            warnings.warn(f"[{name}] dataset preparation failed: {e}; continuing")
     print("\nall datasets ready in", DATA_BASE)
