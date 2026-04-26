@@ -22,13 +22,43 @@ def recall_at_k(I, GT, ks):
     return {k: float(np.mean([GT[i, 0] in I[i, :k]
                               for i in range(len(I))])) for k in ks}
 
+
+def choose_pq_layout(dim, bits_per_coord):
+    """Choose (m, nbits, group_size) for target bits-per-coordinate.
+
+    We prefer exact bitrate matches, then the smallest nbits (lighter training),
+    then the largest group size (fewer sub-quantizers).
+    """
+    if bits_per_coord <= 0:
+        raise ValueError("pq_bits values must be positive")
+
+    candidates = []
+    for group_size in range(1, min(32, dim) + 1):
+        if dim % group_size != 0:
+            continue
+        nbits = bits_per_coord * group_size
+        if nbits < 1 or nbits > 16:
+            continue
+        m = dim // group_size
+        # Effective bits-per-coordinate for this layout.
+        eff_bpc = (m * nbits) / dim
+        err = abs(eff_bpc - bits_per_coord)
+        candidates.append((err, nbits, -group_size, m, group_size))
+
+    if not candidates:
+        raise ValueError(
+            f"No valid PQ layout for dim={dim}, bits={bits_per_coord}; "
+            "requires nbits in [1, 16] and divisible group sizing"
+        )
+
+    _, nbits, _, m, group_size = sorted(candidates)[0]
+    return m, nbits, group_size
+
+
 def run_pq(X, Xq, GT, bits_per_coord, metric, k_max, ks):
     dim = X.shape[1]
-    if bits_per_coord not in (2, 4):
-        raise ValueError("This PQ baseline currently supports pq_bits: [2, 4]")
-    group_size = 4 if bits_per_coord == 2 else 2
-    m, nbits = dim // group_size, bits_per_coord * group_size
-    print(f"  PQ-{bits_per_coord}bit: m={m}, nbits={nbits} ...",
+    m, nbits, group_size = choose_pq_layout(dim, bits_per_coord)
+    print(f"  PQ-{bits_per_coord}bit: m={m}, nbits={nbits}, group={group_size} ...",
           end=" ", flush=True)
     t = time.time()
     idx = faiss.IndexPQ(dim, m, nbits, metric)
