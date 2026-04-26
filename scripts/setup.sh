@@ -1,82 +1,64 @@
 #!/usr/bin/env bash
-# Full pipeline. Set DATASETS env var to limit, e.g.:
-#   DATASETS="glove200_100k openai1536" bash run_all.sh
+# Clone upstream Extended-RaBitQ, vendor Eigen + hnswlib, copy patched src, build.
+# Idempotent: skips steps already done.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-cd "$ROOT"
-
-mkdir -p results/logs results/pq_pickles results/figures
-
-export DATASETS="${DATASETS:-glove200_100k openai1536 openai3072}"
-echo "Datasets: $DATASETS"
-echo "Logs:     $ROOT/results/logs/"
-echo
-
-LOG="$ROOT/results/logs/run_all.log"
-exec > >(tee -a "$LOG") 2>&1
-
-echo "[1/7] Setting up upstream repo + dependencies"
-bash scripts/setup.sh
-
-echo "[2/7] Preparing datasets"
-python scripts/prepare_data.py
-
-echo "[3/7] IVF clustering"
-# nlist=256 for low/mid-dim, nlist=64 for 3072d (RAM-constrained)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM="$ROOT/third_party/Extended-RaBitQ"
-for NAME in $DATASETS; do
-  if [ "$NAME" = "openai3072" ]; then NLIST=64; else NLIST=256; fi
-  CENT="$UPSTREAM/data/$NAME/${NAME}_centroid_${NLIST}.fvecs"
-  if [ -f "$CENT" ]; then
-    echo "  [$NAME] centroids exist (nlist=$NLIST), skipping"
-    continue
-  fi
-  echo "  [$NAME] running k-means with K=$NLIST ..."
-  cd "$UPSTREAM"
-  python python/ivf.py \
-    --base "data/$NAME/${NAME}_base.fvecs" \
-    --k "$NLIST" \
-    --out_dir "data/$NAME" \
-    --name "$NAME"
-  cd "$ROOT"
-done
+UPSTREAM_PIN="main"   # change to a SHA when ready to freeze
 
-echo "[4/7] Building Extended-RaBitQ indexes"
-cd "$UPSTREAM/bin"
-for NAME in $DATASETS; do
-  if [ "$NAME" = "openai3072" ]; then NLIST=64; else NLIST=256; fi
-  for B in 3 5; do
-    INDEX="../data/$NAME/ivf_exhaf${B}.index"
-    if [ -f "$INDEX" ]; then
-      echo "  [$NAME B=$B] index exists, skipping"
-      continue
-    fi
-    echo "=== create_index $NAME $NLIST $B ==="
-    ./create_index "$NAME" "$NLIST" "$B"
-  done
-done
-cd "$ROOT"
+# AVX-512 sanity check
+if ! grep -q avx512f /proc/cpuinfo; then
+  echo "ERROR: CPU lacks AVX-512. Extended RaBitQ requires it."
+  exit 1
+fi
 
-echo "[5/7] Running test_search"
-cd "$UPSTREAM/bin"
-mkdir -p "$UPSTREAM/results/exrabitq"
-for NAME in $DATASETS; do
-  for B in 3 5; do
-    OUT="$ROOT/results/logs/exrabitq_${NAME}_b${B}.log"
-    echo "=== test_search $NAME $B ==="
-    ./test_search "$NAME" "$B" 2>&1 | tee "$OUT"
-    echo "  EVAL lines: $(grep -c '^EVAL ' "$OUT")"
-  done
-done
-cd "$ROOT"
+# Python deps
+pip install -q -r "$ROOT/requirements.txt"
 
-echo "[6/7] Running PQ baselines"
-python scripts/run_pq_baseline.py
+mkdir -p "$ROOT/third_party"
 
-echo "[7/7] Plotting"
-python scripts/plot.py
+# Clone upstream
+if [ ! -d "$UPSTREAM" ]; then
+  echo "  cloning Extended-RaBitQ..."
+  git clone --depth 1 --branch "$UPSTREAM_PIN" \
+    https://github.com/VectorDB-NTU/Extended-RaBitQ.git "$UPSTREAM"
+fi
 
-echo
-echo "Done. Figures in: $ROOT/results/figures/"
-ls -lh "$ROOT/results/figures/"
+# Eigen 3.4.0
+if [ ! -e "$UPSTREAM/inc/third/Eigen" ]; then
+  echo "  vendoring Eigen 3.4.0..."
+  cd "$UPSTREAM/inc/third"
+  wget -q https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+  tar xzf eigen-3.4.0.tar.gz
+  ln -sf eigen-3.4.0/Eigen Eigen
+  rm -f eigen-3.4.0.tar.gz
+fi
+
+# hnswlib (header-only)
+if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
+  echo "  vendoring hnswlib..."
+  cd "$UPSTREAM/inc/third"
+  rm -rf hnswlib_src hnswlib
+  git clone --depth 1 https://github.com/nmslib/hnswlib.git hnswlib_src
+  cp -r hnswlib_src/hnswlib hnswlib
+  rm -rf hnswlib_src
+fi
+
+# Copy patched test_search.cpp directly (no patch needed)
+echo "  copying patched test_search.cpp..."
+cp "$ROOT/cpp/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
+
+# Replace ivf.py with argparse version
+cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
+
+# Build
+mkdir -p "$UPSTREAM/build" "$UPSTREAM/bin"
+cd "$UPSTREAM/build"
+cmake -DCMAKE_BUILD_TYPE=Release .. > /tmp/cmake.log 2>&1 || {
+  echo "CMAKE FAILED:"; tail -50 /tmp/cmake.log; exit 1;
+}
+make -j"$(nproc)" 2>&1 | tail -10
+
+echo "  binaries:"
+ls -lh "$UPSTREAM/bin/"
