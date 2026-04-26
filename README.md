@@ -356,8 +356,6 @@ covered by the same license.
 
 ## Acknowledgements
 
-Course project for **CS-GY 9223**, NYU. Mentor: Majid Daliri (TurboQuant).
-
 Built on:
 * Upstream Extended-RaBitQ implementation by Jianyang Gao and Cheng Long
   (https://github.com/VectorDB-NTU/Extended-RaBitQ).
