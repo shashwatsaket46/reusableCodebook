@@ -636,6 +636,6 @@ void DataQuantizer::store_compacted_code(uint8_t* o_raw, uint8_t* o_compact) con
               }
               o_compact[d / 8] = b;
           }
-      }
+
     }
 }
