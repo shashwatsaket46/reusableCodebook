@@ -45,17 +45,9 @@ if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
   rm -rf hnswlib_src
 fi
 
-# Copy stable source files from overrides (original per-k recall implementation)
+# Use clean upstream code (skip C++ patches to avoid API conflicts)
 python "$ROOT/scripts/generate_cpp_config.py"
-echo "  copying test_search.cpp and create_index.cpp from overrides..."
-cp "$ROOT/cpp/overrides/src/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
-cp "$ROOT/cpp/overrides/src/create_index.cpp" "$UPSTREAM/src/create_index.cpp"
-
-# Copy matching header overrides to ensure API compatibility
-if [ -d "$ROOT/cpp/overrides/inc" ]; then
-  echo "  copying header overrides for API compatibility..."
-  cp -r "$ROOT/cpp/overrides/inc/"* "$UPSTREAM/inc/" 2>/dev/null || echo "    (some headers may conflict; build will show errors)"
-fi
+echo "  using clean upstream code (no per-k output from C++, known limitation)"
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
