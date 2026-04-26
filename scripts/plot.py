@@ -12,7 +12,7 @@ FIGS.mkdir(parents=True, exist_ok=True)
 
 ENABLED = os.environ.get("DATASETS",
                          "glove200_100k openai1536 openai3072").split()
-KS, NLIST = [1, 2, 4, 8, 16, 32], 256
+KS = [1, 2, 4, 8, 16, 32]
 EVAL_PAT = re.compile(r"EVAL bits=(\d+) nprobe=(\d+) k=(\d+) recall=([\d.]+)")
 
 DATASET_TITLES = {
@@ -26,28 +26,43 @@ ORDER = ["PQ-2bit", "ExRaBitQ-2bit+sign (3 bits/dim)",
          "PQ-4bit", "ExRaBitQ-4bit+sign (5 bits/dim)"]
 STYLES = {
     "PQ-2bit":                            ("o", "-",  "tab:blue"),
-    "ExRaBitQ-2bit+sign (3 bits/dim)":    ("o", "--", "tab:blue"),
+    "ExRaBitQ-2bit+sign (3 bits/dim)":    ("x", "--", "tab:blue"),
     "PQ-4bit":                            ("s", "-",  "tab:red"),
-    "ExRaBitQ-4bit+sign (5 bits/dim)":    ("s", "--", "tab:red"),
+    "ExRaBitQ-4bit+sign (5 bits/dim)":    ("x", "--", "tab:red"),
 }
 
 def collect(name):
+    """Load PQ pickle + ExRaBitQ logs. For each B, picks the largest nprobe
+    seen in the log (= exhaustive search, robust to nlist choice)."""
     pq_path = PKLS / f"pq_results_{name}.pkl"
     if not pq_path.exists():
         raise FileNotFoundError(pq_path)
     res = pickle.load(open(pq_path, "rb"))
+    nprobes_used = {}   # for the title later
     for B, lab in EXR_LABELS.items():
         log = LOGS / f"exrabitq_{name}_b{B}.log"
-        if not log.exists(): continue
-        rec = {int(k): float(r)
-               for bb, np_, k, r in EVAL_PAT.findall(log.read_text())
-               if int(np_) == NLIST}
-        if rec: res[lab] = rec
-    return res
+        if not log.exists():
+            continue
+        # Group EVAL rows by nprobe, take the largest (exhaustive)
+        by_np = {}
+        for bb, np_, k, r in EVAL_PAT.findall(log.read_text()):
+            by_np.setdefault(int(np_), {})[int(k)] = float(r)
+        if by_np:
+            best = max(by_np)
+            res[lab] = by_np[best]
+            nprobes_used[B] = best
+    return res, nprobes_used
+
+def _title_for(name, nprobes_used):
+    title, dim = DATASET_TITLES[name]
+    if nprobes_used:
+        unique = sorted(set(nprobes_used.values()))
+        npr = unique[0] if len(unique) == 1 else "/".join(str(n) for n in unique)
+        return f"{title} (d={dim}) — exhaustive (nprobe={npr})"
+    return f"{title} (d={dim})"
 
 def plot_single(name):
-    title, dim = DATASET_TITLES[name]
-    res = collect(name)
+    res, nprobes_used = collect(name)
     fig, ax = plt.subplots(figsize=(8, 5.5))
     for n in ORDER:
         if n not in res: continue
@@ -58,8 +73,7 @@ def plot_single(name):
     ax.set_xlabel("k", fontsize=11)
     ax.set_ylabel("Recall@k  (top-1 GT hit rate)", fontsize=11)
     ax.set_ylim(0.50, 1.01)
-    ax.set_title(f"{title} (d={dim}) — exhaustive (nprobe=nlist={NLIST})",
-                 fontsize=12)
+    ax.set_title(_title_for(name, nprobes_used), fontsize=12)
     ax.grid(True, linestyle="--", alpha=0.4); ax.legend(loc="lower right")
     fig.tight_layout()
     out = FIGS / f"recall_{name}.png"
@@ -87,7 +101,7 @@ def plot_combined(all_res):
         ax.grid(True, linestyle="--", alpha=0.4)
     axes[0].set_ylabel("Recall@k  (top-1 GT hit rate)", fontsize=11)
     axes[-1].legend(loc="lower right", fontsize=9, framealpha=0.95)
-    fig.suptitle(f"PQ vs Extended RaBitQ — exhaustive (nprobe = nlist = {NLIST})",
+    fig.suptitle("PQ vs Extended RaBitQ — exhaustive search",
                  fontsize=13, y=1.00)
     fig.tight_layout()
     out = FIGS / "recall_all_datasets.png"
@@ -101,9 +115,10 @@ if __name__ == "__main__":
         if name not in DATASET_TITLES:
             print(f"unknown dataset {name!r}; skipping"); continue
         try:
-            all_res[name] = plot_single(name)
+            res = plot_single(name)
+            all_res[name] = res
             print(f"[{name}]")
-            for n, r in all_res[name].items():
+            for n, r in res.items():
                 print(f"  {n:<40s}",
                       " ".join(f"R@{k}={r[k]:.4f}" for k in KS))
         except FileNotFoundError as e:

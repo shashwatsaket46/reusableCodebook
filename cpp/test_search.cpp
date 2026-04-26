@@ -1,4 +1,4 @@
-// #define HIGH_ACC_FAST_SCAN
+#define HIGH_ACC_FAST_SCAN
 #define EIGEN_DONT_PARALLELIZE
 #include <array>
 #include <fstream>
