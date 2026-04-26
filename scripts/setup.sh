@@ -45,17 +45,10 @@ if [ ! -f "$UPSTREAM/inc/third/hnswlib/hnswlib.h" ]; then
   rm -rf hnswlib_src
 fi
 
-# Copy patched test_search.cpp from overrides (original stable version for per-k recall)
+# Use clean upstream code (stable baseline)
 python "$ROOT/scripts/generate_cpp_config.py"
-echo "  copying stable test_search.cpp from overrides..."
-cp "$ROOT/cpp/overrides/src/test_search.cpp" "$UPSTREAM/src/test_search.cpp"
-cp "$ROOT/cpp/overrides/src/create_index.cpp" "$UPSTREAM/src/create_index.cpp" 2>/dev/null || true
-
-# Copy header overrides if present
-if [ -d "$ROOT/cpp/overrides/inc" ]; then
-  echo "  copying header overrides..."
-  cp -r "$ROOT/cpp/overrides/inc/"* "$UPSTREAM/inc/" 2>/dev/null || true
-fi
+echo "  using clean upstream code..."
+# Do not copy overrides - let upstream build naturally
 
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
@@ -66,9 +59,9 @@ rm -rf "$UPSTREAM/build" "$UPSTREAM/bin"
 mkdir -p "$UPSTREAM/build" "$UPSTREAM/bin"
 cd "$UPSTREAM/build"
 cmake -DCMAKE_BUILD_TYPE=Release .. > /tmp/cmake.log 2>&1 || {
-  echo "CMAKE FAILED:"; tail -50 /tmp/cmake.log; exit 1;
+  echo "CMAKE FAILED - full log:"; cat /tmp/cmake.log; exit 1;
 }
-make -j"$(nproc)" 2>&1 | tail -10
+make -j"$(nproc)" 2>&1 | tee /tmp/make.log
 
 echo "  binaries:"
 ls -lh "$UPSTREAM/bin/"
