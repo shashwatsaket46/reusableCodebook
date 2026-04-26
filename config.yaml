@@ -52,3 +52,6 @@ plot:
     exrabitq_2bit: tab:blue
     pq_4bit: tab:red
     exrabitq_4bit: tab:red
+    pq_3bit: tab:green
+    exrabitq_3bit: tab:green
+    #add more colors if you add more bit widths
