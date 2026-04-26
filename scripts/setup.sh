@@ -54,6 +54,10 @@ cp "$ROOT/cpp/experiment_config.hpp" "$UPSTREAM/src/experiment_config.hpp"
 # Replace ivf.py with argparse version
 cp "$ROOT/scripts/ivf_argparse.py" "$UPSTREAM/python/ivf.py"
 
+# Force clean rebuild to pick up new experiment config
+echo "  cleaning old build artifacts..."
+rm -rf "$UPSTREAM/build" "$UPSTREAM/bin"
+
 # Build
 mkdir -p "$UPSTREAM/build" "$UPSTREAM/bin"
 cd "$UPSTREAM/build"
