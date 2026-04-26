@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM="$ROOT/third_party/Extended-RaBitQ"
 NLIST="${NLIST:-256}"
-BITS="${BITS:-3 5}"
+BITS="${BITS:-3 4}"
 
 cd "$UPSTREAM/bin"
 for NAME in $DATASETS; do
