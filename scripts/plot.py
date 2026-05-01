@@ -2,8 +2,8 @@
 """Generate per-dataset and combined recall@k plots.
 
 Auto-discovers all ExRaBitQ bit-widths from log files in results/logs/,
-so the plot adapts to whatever was actually run (config.yaml's
-exrabitq_bits is just a default for what to run, not what to plot).
+and TurboQuantProd bit-widths from pickles in results/tq_pickles/,
+so the plot adapts to whatever was actually run.
 """
 import pickle
 import re
@@ -16,16 +16,25 @@ from config_utils import enabled_datasets, ensure_int_list, load_config
 ROOT = Path(__file__).resolve().parent.parent
 LOGS = ROOT / "results" / "logs"
 PKLS = ROOT / "results" / "pq_pickles"
+TQ_PKLS = ROOT / "results" / "tq_pickles"
 FIGS = ROOT / "results" / "figures"
 FIGS.mkdir(parents=True, exist_ok=True)
 
 EVAL_PAT = re.compile(r"EVAL bits=(\d+) nprobe=(\d+) k=(\d+) recall=([\d.]+)")
 
 
+# ----------------------------------------------------------------------
+# Labels and styling
+# ----------------------------------------------------------------------
+
 def _dataset_title(name, ds_cfg):
     dim = int(ds_cfg.get("dim", 0))
     n_query = int(ds_cfg.get("n_query", 0))
     return f"{name}, {n_query} queries", dim
+
+
+def _pq_label(bits):
+    return f"PQ-{bits}bit ({bits} bits/dim)"
 
 
 def _exr_label(bits):
@@ -34,24 +43,25 @@ def _exr_label(bits):
     return f"ExRaBitQ-{bits}bit ({bits} bits/dim)"
 
 
-def _pq_label(bits):
-    return f"PQ-{bits}bit ({bits} bits/dim)"
+def _tq_label(bits):
+    return f"TurboQuantProd-{bits}bit ({bits} bits/dim)"
 
 
 def _color_for(method, bits, plot_colors):
-    """Pick a color. PQ and matched-budget ExRaBitQ share a color
-    so equal-budget pairs are visually associated."""
+    """Pick a color from config; fall back to a deterministic palette."""
     palette = ["tab:blue", "tab:red", "tab:green", "tab:orange",
-               "tab:purple", "tab:brown", "tab:olive", "tab:cyan"]
+               "tab:purple", "tab:brown", "tab:olive", "tab:cyan",
+               "tab:pink", "tab:gray"]
     key = f"{method}_{bits}bit"
     if key in plot_colors:
         return plot_colors[key]
-    # Default: same color for PQ-Nbit and ExRaBitQ-Nbit at same N
-    sorted_bits = sorted({2, 4})  # canonical PQ widths
-    if bits in sorted_bits:
-        return palette[sorted_bits.index(bits)]
-    return palette[bits % len(palette)]
+    # Deterministic fallback so re-runs are stable
+    return palette[(hash(key)) % len(palette)]
 
+
+# ----------------------------------------------------------------------
+# Discovery
+# ----------------------------------------------------------------------
 
 def _discover_ex_bits(name):
     """Find all bN.log files for this dataset; return sorted list of bits."""
@@ -64,44 +74,61 @@ def _discover_ex_bits(name):
     return sorted(set(bits))
 
 
-def _build_styles(pq_bits, ex_bits, plot_colors):
-    """Build (label_order, styles) dicts for plotting.
-    PQ uses solid lines + filled markers; ExRaBitQ uses dashed + 'x' markers."""
+# ----------------------------------------------------------------------
+# Style construction
+# ----------------------------------------------------------------------
+
+def _build_styles(pq_bits, ex_bits, tq_bits, plot_colors):
+    """Return (label_order, styles_dict).
+
+    PQ           -> solid line
+    ExRaBitQ     -> dashed line
+    TurboQuant   -> dotted line
+    """
     order = []
     styles = {}
 
-    pq_markers = {2: "o", 4: "s", 1: "D", 3: "^", 5: "v", 6: "p", 8: "h"}
+    markers = {2: "o", 4: "s", 1: "D", 3: "^", 5: "v", 6: "p", 8: "h"}
 
-    # PQ first, in increasing bit order
     for b in sorted(pq_bits):
         key = _pq_label(b)
-        marker = pq_markers.get(b, "o")
-        color = _color_for("pq", b, plot_colors)
-        styles[key] = (marker, "-", color)
+        styles[key] = (markers.get(b, "o"), "-",
+                       _color_for("pq", b, plot_colors))
         order.append(key)
 
-    # ExRaBitQ second, also in increasing bit order
     for b in sorted(ex_bits):
         key = _exr_label(b)
-        marker = pq_markers.get(b, "x")
-        color = _color_for("exrabitq", b, plot_colors)
-        styles[key] = (marker, "--", color)
+        styles[key] = (markers.get(b, "x"), "--",
+                       _color_for("exrabitq", b, plot_colors))
+        order.append(key)
+
+    for b in sorted(tq_bits):
+        key = _tq_label(b)
+        styles[key] = (markers.get(b, "*"), ":",
+                       _color_for("turboquantprod", b, plot_colors))
         order.append(key)
 
     return order, styles
 
 
+# ----------------------------------------------------------------------
+# Data collection
+# ----------------------------------------------------------------------
+
 def collect(name, plot_colors):
-    """Load PQ pickle + auto-discovered ExRaBitQ logs.
-    For each B, picks the largest nprobe seen in the log (= exhaustive)."""
+    """Load PQ pickle + auto-discovered ExRaBitQ logs + TurboQuant pickle.
+
+    For ExRaBitQ each B picks the largest nprobe seen in the log
+    (= exhaustive search, robust to nlist choice).
+    """
+    res = {}
+
+    # ----- PQ pickle (required) -----
     pq_path = PKLS / f"pq_results_{name}.pkl"
     if not pq_path.exists():
         raise FileNotFoundError(pq_path)
-
     raw_pq = pickle.load(open(pq_path, "rb"))
-    res = {}
     pq_bits_present = []
-    # Re-key PQ entries to use full label format
     for k, v in raw_pq.items():
         m = re.match(r"PQ-(\d+)bit", k)
         if m:
@@ -109,25 +136,43 @@ def collect(name, plot_colors):
             res[_pq_label(b)] = v
             pq_bits_present.append(b)
         else:
-            res[k] = v  # unknown key — pass through
+            # unknown key — pass through but don't include in styling
+            res[k] = v
 
+    # ----- ExRaBitQ logs (optional) -----
     nprobes_used = {}
     ex_bits_present = _discover_ex_bits(name)
-
     for B in ex_bits_present:
-        lab = _exr_label(B)
         log = LOGS / f"exrabitq_{name}_b{B}.log"
         by_np = {}
         for bb, np_, k, r in EVAL_PAT.findall(log.read_text()):
             by_np.setdefault(int(np_), {})[int(k)] = float(r)
         if by_np:
             best = max(by_np)
-            res[lab] = by_np[best]
+            res[_exr_label(B)] = by_np[best]
             nprobes_used[B] = best
 
-    order, styles = _build_styles(pq_bits_present, ex_bits_present, plot_colors)
+    # ----- TurboQuant pickle (optional) -----
+    tq_bits_present = []
+    tq_path = TQ_PKLS / f"tq_results_{name}.pkl"
+    if tq_path.exists():
+        raw_tq = pickle.load(open(tq_path, "rb"))
+        for k, v in raw_tq.items():
+            m = re.match(r"TurboQuantProd-(\d+)bit", k)
+            if m:
+                b = int(m.group(1))
+                res[_tq_label(b)] = v
+                tq_bits_present.append(b)
+
+    order, styles = _build_styles(
+        pq_bits_present, ex_bits_present, tq_bits_present, plot_colors
+    )
     return res, nprobes_used, order, styles
 
+
+# ----------------------------------------------------------------------
+# Plotting
+# ----------------------------------------------------------------------
 
 def _title_for(name, ds_cfg, nprobes_used):
     title, dim = _dataset_title(name, ds_cfg)
@@ -149,7 +194,8 @@ def plot_single(name, ds_cfg, ks, y_lim, plot_colors):
         ax.plot(ks, [res[n][k] for k in ks], marker=m, linestyle=ls,
                 color=c, linewidth=2.2, markersize=8, label=n)
     ax.set_xscale("log", base=2)
-    ax.set_xticks(ks); ax.set_xticklabels(ks)
+    ax.set_xticks(ks)
+    ax.set_xticklabels(ks)
     ax.set_xlabel("k", fontsize=11)
     ax.set_ylabel("Recall1@k", fontsize=11)
     ax.set_ylim(*y_lim)
@@ -172,7 +218,6 @@ def plot_combined(all_res_orders, datasets_cfg, ks, y_lim):
     if n_panels == 1:
         axes = [axes]
 
-    # Use the union of all orders for a consistent legend, but draw per-panel
     seen_labels = []
     legend_handles = {}
 
@@ -188,7 +233,8 @@ def plot_combined(all_res_orders, datasets_cfg, ks, y_lim):
                 legend_handles[n] = line
                 seen_labels.append(n)
         ax.set_xscale("log", base=2)
-        ax.set_xticks(ks); ax.set_xticklabels(ks)
+        ax.set_xticks(ks)
+        ax.set_xticklabels(ks)
         ax.set_xlabel("k", fontsize=11)
         ax.set_title(f"{title} (d={dim})", fontsize=12)
         ax.set_ylim(*y_lim)
@@ -199,7 +245,7 @@ def plot_combined(all_res_orders, datasets_cfg, ks, y_lim):
         [legend_handles[n] for n in seen_labels], seen_labels,
         loc="lower right", fontsize=9, framealpha=0.95,
     )
-    fig.suptitle("PQ vs Extended RaBitQ — exhaustive search",
+    fig.suptitle("PQ vs Extended RaBitQ vs TurboQuantProd — exhaustive search",
                  fontsize=13, y=1.00)
     fig.tight_layout()
     out = FIGS / "recall_all_datasets.png"
@@ -207,6 +253,10 @@ def plot_combined(all_res_orders, datasets_cfg, ks, y_lim):
     plt.close(fig)
     print(f"  saved {out}")
 
+
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
 
 if __name__ == "__main__":
     cfg = load_config()

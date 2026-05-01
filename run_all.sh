@@ -34,7 +34,10 @@ bash scripts/run_search.sh
 echo "[6/7] Running PQ baselines"
 python scripts/run_pq_baseline.py
 
-echo "[7/7] Plotting"
+echo "[7/8] Running TurboQuant baselines"
+python scripts/run_turboquant_baseline.py
+
+echo "[8/8] Plotting"
 python scripts/plot.py
 
 echo

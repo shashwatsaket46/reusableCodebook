@@ -5,3 +5,4 @@ datasets>=2.14
 psutil
 huggingface_hub
 PyYAML>=6.0
+git+https://github.com/yashkc2025/turboquant.git@main

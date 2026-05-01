@@ -34,24 +34,23 @@ datasets:
       column: text-embedding-3-large-3072-embedding
 
 # What to evaluate
-exrabitq_bits:  [2, 4]      # supported: 2, 3, 4, 5, 7, 8, 9
-pq_bits:        [2, 4]
-pq_metric:      inner_product   # inner_product | l2
-eval_ks:        [1, 2, 4, 8, 16, 32]
-search_rounds:  3
+exrabitq_bits:    [2, 4]
+pq_bits:          [2, 4]
+turboquant_bits:  [2, 4]
+pq_metric:        inner_product
+eval_ks:          [1, 2, 4, 8, 16, 32]
+search_rounds:    3
 
-# C++ behavior — does NOT change without rebuilding
 cpp:
   topk: 32
-  high_acc_fast_scan: true   # leave true; false breaks search
+  high_acc_fast_scan: true
 
 plot:
   y_lim: [0.50, 1.01]
   colors:
-    pq_2bit: tab:blue
-    exrabitq_2bit: tab:green
-    pq_4bit: tab:red
-    exrabitq_4bit: tab:purple
-    pq_3bit: tab:green
-    exrabitq_3bit: tab:yellow
-    #add more colors if you add more bit widths
+    pq_2bit:              tab:blue
+    pq_4bit:              tab:red
+    exrabitq_2bit:        tab:green
+    exrabitq_4bit:        tab:orange
+    turboquantprod_2bit:  tab:purple
+    turboquantprod_4bit:  tab:brown
