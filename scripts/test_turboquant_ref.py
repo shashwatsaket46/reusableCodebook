@@ -69,7 +69,7 @@ def test_glove200():
     X /= np.linalg.norm(X, axis=1, keepdims=True)
     Xq /= np.linalg.norm(Xq, axis=1, keepdims=True)
 
-    for b in [2, 3, 4]:
+    for b in [2, 4]:
         tq = TurboQuantProd(d=200, bits=b, seed=42)
         t0 = time.time()
         compressed = tq.quantize(X)

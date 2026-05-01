@@ -183,33 +183,37 @@ class TurboQuantProd:
             "residual_norm": residual_norm,
         }
 
-    def inner_product(self, queries: np.ndarray, compressed: dict) -> np.ndarray:
-        """Estimated inner products between queries and stored compressed vectors.
+    def inner_product(self, queries: np.ndarray, compressed: dict,
+                      query_batch: int = 256) -> np.ndarray:
+        """Estimated inner products. Chunked over queries to bound memory.
 
-        queries: (NQ, d) unit-norm.
-        Returns: (NQ, N).
+        Memory peak: query_batch * N * 8 bytes (= 200 MB for batch=256, N=100k).
         """
         queries = np.asarray(queries, dtype=np.float64)
         if queries.ndim == 1:
             queries = queries.reshape(1, -1)
-        idx = compressed["idx"]                # (N, d)
-        sign_codes = compressed["sign_codes"]  # (N, m)
-        residual_norm = compressed["residual_norm"]  # (N,)
+
+        idx = compressed["idx"]
+        sign_codes = compressed["sign_codes"]
+        residual_norm = compressed["residual_norm"]
+
+        NQ = queries.shape[0]
         N = idx.shape[0]
+        out = np.empty((NQ, N), dtype=np.float32)  # half memory of float64
 
-        # Rotate queries (queries are in the original space; rotation aligns them)
-        q_rot = queries @ self.R               # (NQ, d)
-
-        # MSE part: <q_rot, levels[idx]>
-        rotated_hat = self.levels[idx]         # (N, d)
-        mse_scores = q_rot @ rotated_hat.T     # (NQ, N)
-
-        # QJL correction: scale * residual_norm[i] * <S q_rot, sign_codes[i]>
-        # S has shape (m, d); q_rot has shape (NQ, d)
-        Sq = q_rot @ self.S.T                  # (NQ, m)
-        # sign_codes is int8 — cast to float for matmul
-        qjl_dot = Sq @ sign_codes.astype(np.float64).T   # (NQ, N)
+        # Precompute the rotated DB representation (constant across query batches)
+        rotated_hat = self.levels[idx]                         # (N, d), float64
+        sign_codes_f = sign_codes.astype(np.float64)           # (N, m)
         scale = np.sqrt(np.pi / 2) / self.qjl_dim
-        qjl_scores = scale * residual_norm[np.newaxis, :] * qjl_dot   # (NQ, N)
 
-        return mse_scores + qjl_scores
+        for start in range(0, NQ, query_batch):
+            end = min(start + query_batch, NQ)
+            q_rot = queries[start:end] @ self.R                # (B, d)
+            # MSE part
+            mse = q_rot @ rotated_hat.T                         # (B, N)
+            # QJL part
+            Sq = q_rot @ self.S.T                               # (B, m)
+            qjl_dot = Sq @ sign_codes_f.T                       # (B, N)
+            qjl = scale * residual_norm[np.newaxis, :] * qjl_dot
+            out[start:end] = (mse + qjl).astype(np.float32)
+        return out
