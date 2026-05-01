@@ -1,45 +1,26 @@
-"""Reference implementation of TurboQuant (paper: arXiv 2504.19874).
-
-Two modes:
-  - 'mse'           : Algorithm 1, MSE-optimal quantizer
-  - 'inner_product' : Algorithm 2, unbiased IP estimator (MSE + QJL on residual)
-
-Total bits/dim:
-  mode='mse'           : b
-  mode='inner_product' : b   (because b-1 MSE bits + 1 QJL bit = b total)
-
-Inputs are assumed to be unit-norm. If not, normalize first and store norms separately.
-"""
+"""Reference TurboQuant implementation (paper: arXiv 2504.19874)."""
 from __future__ import annotations
-
 import numpy as np
-from scipy.stats import beta as beta_dist
 
 
 # ============================================================================
-# Lloyd-Max codebook for symmetric Beta on [-1, 1]
+# Lloyd-Max for unit Gaussian
 # ============================================================================
 
-def beta_alpha_for_dim(d: int) -> float:
-    """For a unit-norm vector uniform on the (d-1)-sphere, each coordinate
-    after a Haar rotation has density f(c) = (1-c^2)^((d-3)/2) / B(1/2, (d-1)/2)
-    on [-1, 1] — symmetric Beta with parameter alpha = (d-1)/2 (re-scaled to [-1,1]).
-    """
-    return (d - 1) / 2.0
-
-
-def _sample_beta_pm1(alpha: float, n: int, rng: np.random.Generator) -> np.ndarray:
-    return 2 * rng.beta(alpha, alpha, size=n) - 1
-
-
-def lloyd_max_beta(
-        alpha: float, n_levels: int, n_iter: int = 300,
-        n_samples: int = 200_000, seed: int = 42,
+def lloyd_max_gaussian(
+        n_levels: int, n_iter: int = 300, n_samples: int = 500_000, seed: int = 42
 ) -> np.ndarray:
-    """Optimal Lloyd-Max scalar quantizer levels for Beta on [-1, 1]."""
+    """Lloyd-Max scalar quantizer for N(0, 1).
+
+    Initial spread covers ±3σ which always has positive density, so all cells
+    populate and converge correctly.
+    """
     rng = np.random.default_rng(seed)
-    samples = _sample_beta_pm1(alpha, n_samples, rng)
-    levels = np.linspace(-0.95, 0.95, n_levels)
+    samples = rng.standard_normal(n_samples)
+    # Spread initial levels within the bulk of the distribution (±3σ)
+    levels = np.linspace(-3, 3, n_levels)
+    if n_levels == 1:
+        return np.array([0.0])
     for _ in range(n_iter):
         boundaries = (levels[:-1] + levels[1:]) / 2.0
         idx = np.digitize(samples, boundaries)
@@ -55,45 +36,43 @@ def lloyd_max_beta(
 
 
 # ============================================================================
-# Haar-distributed random rotation
+# Haar rotation
 # ============================================================================
 
 def haar_rotation(d: int, seed: int = 42) -> np.ndarray:
-    """Random orthogonal matrix uniformly distributed on O(d) (Haar measure).
-
-    QR decomposition of a Gaussian matrix gives a Haar-distributed Q after
-    sign correction (so that R has positive diagonal).
-    """
+    """Random orthogonal matrix uniformly distributed on O(d) (Haar measure)."""
     rng = np.random.default_rng(seed)
     A = rng.standard_normal((d, d))
     Q, R = np.linalg.qr(A)
-    # Sign-correct so Q is uniform on O(d) (avoids subtle non-uniformity)
     signs = np.sign(np.diag(R))
     Q = Q * signs[np.newaxis, :]
     return Q.astype(np.float64)
 
 
 # ============================================================================
-# Core quantizers
+# Quantize / dequantize helpers
 # ============================================================================
 
 def _quantize_to_levels(values: np.ndarray, levels: np.ndarray) -> np.ndarray:
-    """Map each value to the index of the nearest level. Vectorized."""
-    boundaries = (levels[:-1] + levels[1:]) / 2.0  # (n_levels-1,)
+    """Map each value to the index of the nearest level."""
+    if len(levels) == 1:
+        return np.zeros_like(values, dtype=np.int32)
+    boundaries = (levels[:-1] + levels[1:]) / 2.0
     return np.digitize(values, boundaries)
 
 
+# ============================================================================
+# TurboQuant MSE — Algorithm 1
+# ============================================================================
+
 class TurboQuantMSE:
-    """Algorithm 1: MSE-optimal vector quantizer.
+    """MSE-optimal quantizer.
 
-    Pipeline (per vector x of unit norm in R^d):
-      1. Rotate: r = R x
-      2. Quantize each coord r_i to nearest Lloyd-Max level for Beta(α=(d-1)/2)
-      3. Store the indices
-
-    Reconstruct:
-      r_hat = lookup(idx)
-      x_hat = R^T r_hat
+    For unit-norm input x in R^d:
+      1. Rotate: r = R x  (coords have std 1/sqrt(d))
+      2. Standardize: r_std = r * sqrt(d)  (now ~ N(0, 1) per coord)
+      3. Quantize each coord r_std[i] to nearest Lloyd-Max-Gaussian level
+      4. Reconstruct: r_hat = levels[idx] / sqrt(d), then x_hat = R^T r_hat
     """
 
     def __init__(self, d: int, bits: int, seed: int = 42):
@@ -101,39 +80,34 @@ class TurboQuantMSE:
             raise ValueError("bits must be >= 1")
         self.d = d
         self.bits = bits
-        self.alpha = beta_alpha_for_dim(d)
-        self.levels = lloyd_max_beta(self.alpha, 2 ** bits, seed=seed)
+        self.scale = np.sqrt(d)  # standardization factor
+        self.levels = lloyd_max_gaussian(2 ** bits, seed=seed)
         self.R = haar_rotation(d, seed=seed)
 
     def quantize(self, X: np.ndarray) -> np.ndarray:
-        """X: (N, d) unit-norm. Returns idx: (N, d) integer codes in [0, 2^bits)."""
         X = np.asarray(X, dtype=np.float64)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        rotated = X @ self.R  # (N, d)
-        idx = _quantize_to_levels(rotated, self.levels).astype(np.int32)
+        rotated = X @ self.R                    # (N, d), std ~ 1/sqrt(d)
+        rotated_std = rotated * self.scale      # standardize to ~N(0, 1)
+        idx = _quantize_to_levels(rotated_std, self.levels).astype(np.int32)
         return idx
 
     def dequantize(self, idx: np.ndarray) -> np.ndarray:
-        """idx: (N, d) -> X_hat: (N, d). Reconstructs in the original (un-rotated) space."""
-        rotated_hat = self.levels[idx]              # (N, d)
-        return rotated_hat @ self.R.T                # un-rotate
+        rotated_hat_std = self.levels[idx]      # (N, d), values in N(0,1) range
+        rotated_hat = rotated_hat_std / self.scale   # un-standardize
+        return rotated_hat @ self.R.T
 
-    def quantize_for_search(self, X: np.ndarray):
-        """Storage-optimized: returns (idx, x_hat_rotated) for fast search.
-        Avoids re-doing R x for queries that come later.
-        """
-        idx = self.quantize(X)
-        x_hat_rotated = self.levels[idx]            # (N, d) in rotated space
-        return idx, x_hat_rotated
 
+# ============================================================================
+# TurboQuant Prod — Algorithm 2 (MSE + QJL)
+# ============================================================================
 
 class TurboQuantProd:
-    """Algorithm 2: unbiased inner product quantizer (MSE + QJL).
+    """Unbiased inner product quantizer.
 
-    bits/dim total = `bits` (split as bits-1 for MSE part, 1 for QJL).
-
-    For inner-product mode the paper requires bits >= 2.
+    Uses (bits-1)-bit MSE quantizer + 1-bit QJL on residual.
+    Total bits/dim = bits.
     """
 
     def __init__(self, d: int, bits: int, seed: int = 42, qjl_dim: int | None = None):
@@ -142,40 +116,30 @@ class TurboQuantProd:
         self.d = d
         self.bits = bits
         self.bits_mse = bits - 1
-        self.qjl_dim = qjl_dim if qjl_dim is not None else d  # default m = d
-        self.alpha = beta_alpha_for_dim(d)
-        self.levels = lloyd_max_beta(self.alpha, 2 ** self.bits_mse, seed=seed)
+        self.qjl_dim = qjl_dim if qjl_dim is not None else d
+        self.scale = np.sqrt(d)
+        self.levels = lloyd_max_gaussian(2 ** self.bits_mse, seed=seed)
         self.R = haar_rotation(d, seed=seed)
 
-        # QJL projection: random Gaussian matrix in R^(qjl_dim, d).
-        # Standard QJL uses entries ~ N(0, 1/qjl_dim) so that the resulting
-        # projection has E[||S x||^2] = ||x||^2 (in expectation).
+        # QJL projection: Gaussian matrix scaled to unit-variance projections
         rng = np.random.default_rng(seed + 12345)
-        self.S = rng.standard_normal((self.qjl_dim, d)) / np.sqrt(self.qjl_dim)
-        self.S = self.S.astype(np.float64)
+        self.S = (rng.standard_normal((self.qjl_dim, d)) /
+                  np.sqrt(self.qjl_dim)).astype(np.float64)
 
     def quantize(self, X: np.ndarray):
-        """X: (N, d) unit-norm. Returns dict with: idx, sign_codes, residual_norm.
-
-        idx          : (N, d)    — MSE quantization codes
-        sign_codes   : (N, m)    — sign(S * normalized_residual_in_rotated_space)
-        residual_norm: (N,)      — ||residual_in_rotated_space||
-        """
         X = np.asarray(X, dtype=np.float64)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        rotated = X @ self.R                                  # (N, d)
-        idx = _quantize_to_levels(rotated, self.levels).astype(np.int32)
-        rotated_hat = self.levels[idx]                         # (N, d)
-        residual = rotated - rotated_hat                       # (N, d), in rotated space
-        residual_norm = np.linalg.norm(residual, axis=1)       # (N,)
-        # Normalize residual; safe-divide for zero-norm rows
+        rotated = X @ self.R                      # (N, d)
+        rotated_std = rotated * self.scale         # standardize
+        idx = _quantize_to_levels(rotated_std, self.levels).astype(np.int32)
+        rotated_hat_std = self.levels[idx]         # (N, d), in std space
+        # Residual in standardized rotated space
+        residual_std = rotated_std - rotated_hat_std
+        residual_norm = np.linalg.norm(residual_std, axis=1)   # (N,)
         safe = np.where(residual_norm[:, None] > 1e-12, residual_norm[:, None], 1.0)
-        residual_unit = residual / safe                        # (N, d)
-        # QJL: sign of Gaussian projection
-        # Note: S is (m, d), residual_unit is (N, d) — output is (N, m)
+        residual_unit = residual_std / safe                    # (N, d)
         sign_codes = np.sign(residual_unit @ self.S.T).astype(np.int8)
-        # Replace zero signs (rare) with +1 to avoid degeneracy
         sign_codes[sign_codes == 0] = 1
         return {
             "idx": idx,
@@ -183,12 +147,10 @@ class TurboQuantProd:
             "residual_norm": residual_norm,
         }
 
-    def inner_product(self, queries: np.ndarray, compressed: dict,
-                      query_batch: int = 256) -> np.ndarray:
-        """Estimated inner products. Chunked over queries to bound memory.
-
-        Memory peak: query_batch * N * 8 bytes (= 200 MB for batch=256, N=100k).
-        """
+    def inner_product(
+            self, queries: np.ndarray, compressed: dict, query_batch: int = 256
+    ) -> np.ndarray:
+        """Estimated <query, x>. Chunked over queries to bound memory."""
         queries = np.asarray(queries, dtype=np.float64)
         if queries.ndim == 1:
             queries = queries.reshape(1, -1)
@@ -196,24 +158,35 @@ class TurboQuantProd:
         idx = compressed["idx"]
         sign_codes = compressed["sign_codes"]
         residual_norm = compressed["residual_norm"]
+        NQ, N = queries.shape[0], idx.shape[0]
+        out = np.empty((NQ, N), dtype=np.float32)
 
-        NQ = queries.shape[0]
-        N = idx.shape[0]
-        out = np.empty((NQ, N), dtype=np.float32)  # half memory of float64
-
-        # Precompute the rotated DB representation (constant across query batches)
-        rotated_hat = self.levels[idx]                         # (N, d), float64
-        sign_codes_f = sign_codes.astype(np.float64)           # (N, m)
-        scale = np.sqrt(np.pi / 2) / self.qjl_dim
+        # DB side, precomputed
+        rotated_hat_std = self.levels[idx]               # (N, d) in std space
+        # x_hat in standardized rotated coords, but inner product needs original coords.
+        # Since R is orthogonal, <q, x_hat> = <R q, R x_hat>.
+        # And rotated_hat_std = scale * R x_hat → R x_hat = rotated_hat_std / scale.
+        # So <q, x_hat> = <R q, rotated_hat_std> / scale.
+        sign_codes_f = sign_codes.astype(np.float64)
+        # QJL inverse: residual_unit ≈ scale_qjl * S^T sign_codes / qjl_dim
+        # Actually: <Sq, sign(Sr)> ≈ sqrt(2/π) * <q, r> / |r|, so
+        # <q, r> ≈ |r| * sqrt(π/2) / qjl_dim * <Sq, sign(Sr)>
+        scale_qjl = np.sqrt(np.pi / 2) / self.qjl_dim
 
         for start in range(0, NQ, query_batch):
             end = min(start + query_batch, NQ)
-            q_rot = queries[start:end] @ self.R                # (B, d)
-            # MSE part
-            mse = q_rot @ rotated_hat.T                         # (B, N)
-            # QJL part
-            Sq = q_rot @ self.S.T                               # (B, m)
-            qjl_dot = Sq @ sign_codes_f.T                       # (B, N)
-            qjl = scale * residual_norm[np.newaxis, :] * qjl_dot
+            q_rot = queries[start:end] @ self.R          # (B, d), in rotated space
+            q_rot_std = q_rot * self.scale                # in standardized rotated space
+
+            # MSE part: <q_rot_std, rotated_hat_std> / scale
+            # because <q, x_hat> = <q_rot, x_hat_rot> = <q_rot_std, rotated_hat_std> / scale
+            mse = (q_rot_std @ rotated_hat_std.T) / self.scale  # (B, N)
+
+            # QJL part on residual (in std space)
+            Sq = q_rot_std @ self.S.T                     # (B, m)
+            qjl_dot = Sq @ sign_codes_f.T                 # (B, N)
+            # The QJL gives <q_rot_std, residual_std>; we need <q, residual> = <q_rot_std, residual_std> / scale
+            qjl = (scale_qjl * residual_norm[np.newaxis, :] * qjl_dot) / self.scale
+
             out[start:end] = (mse + qjl).astype(np.float32)
         return out
