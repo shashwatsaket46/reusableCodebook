@@ -18,6 +18,8 @@ distortion penalty of the nesting constraint.
 Outputs:
   - results/codebooks/hierarchical_gaussian.npz
   - results/figures/hierarchical_codebook_gaussian.png
+  - results/figures/hierarchical_vs_native.png
+  - results/figures/hierarchical_mse_bars.png
   - results/codebooks/hierarchical_metrics.csv
 """
 from __future__ import annotations
@@ -150,8 +152,8 @@ def _initialize_new_levels(prev_levels: np.ndarray, n_new: int) -> np.ndarray:
     """Pick n_new initial positions for new levels.
 
     Heuristic: identify the n_new largest "cells" (gaps between adjacent levels,
-    plus the regions [-∞, prev_min] and [prev_max, +∞]) and place one new level
-    at the midpoint of each.
+    plus the regions [-inf, prev_min] and [prev_max, +inf]) and place one new
+    level at the midpoint of each.
 
     For the unbounded Gaussian, we use ±3σ as the soft boundaries.
     """
@@ -169,7 +171,7 @@ def build_hierarchical_codebooks(
     """Build a sequence of nested codebooks for N(0, 1).
 
     Returns dict {b: levels} where levels[b] is sorted, len = 2^b,
-    and levels[b1] ⊂ levels[b2] for b1 < b2.
+    and levels[b1] subset of levels[b2] for b1 < b2.
     """
     bit_widths = sorted(bit_widths)
     codebooks = {}
@@ -188,6 +190,19 @@ def build_hierarchical_codebooks(
     return codebooks
 
 
+def build_top_down_codebooks(
+        bit_widths: list[int], seed: int = 42
+) -> dict[int, np.ndarray]:
+    """Top-down: solve b_max unconstrained, decimate to lower bit-widths.
+
+    Higher bit-widths are unconstrained-optimal; lower bit-widths bear penalty.
+    """
+    bit_widths = sorted(bit_widths)
+    b_max = bit_widths[-1]
+    levels_max = lloyd_max_unconstrained(2 ** b_max, seed=seed)
+    return {b: levels_max[::2 ** (b_max - b)] for b in bit_widths}
+
+
 # ============================================================================
 # Evaluation
 # ============================================================================
@@ -197,8 +212,10 @@ def empirical_mse(levels: np.ndarray, n_samples: int = 1_000_000,
     """Empirical MSE of the codebook on N(0, 1) samples."""
     rng = np.random.default_rng(seed)
     samples = sample_gaussian(n_samples, rng)
-    boundaries = voronoi_boundaries(levels) if len(levels) > 1 else np.array([])
-    idx = np.digitize(samples, boundaries) if len(levels) > 1 else np.zeros_like(samples, dtype=np.int64)
+    if len(levels) == 1:
+        idx = np.zeros_like(samples, dtype=np.int64)
+    else:
+        idx = np.digitize(samples, voronoi_boundaries(levels))
     quantized = levels[idx]
     return float(np.mean((samples - quantized) ** 2))
 
@@ -235,34 +252,42 @@ def main():
         native[b] = lloyd_max_unconstrained(2 ** b)
         print(f"  b={b}  ({2**b:>2d} levels): {np.array2string(native[b], precision=4, suppress_small=True)}")
 
-    # Hierarchical (nested) Lloyd-Max
-    print("\nHierarchical (nested) Lloyd-Max levels:")
-    hier = build_hierarchical_codebooks(BITS)
+    # Bottom-up hierarchical (nested) Lloyd-Max
+    print("\nBottom-up hierarchical (nested) Lloyd-Max levels:")
+    hier_bu = build_hierarchical_codebooks(BITS)
     for b in BITS:
-        print(f"  b={b}  ({2**b:>2d} levels): {np.array2string(hier[b], precision=4, suppress_small=True)}")
+        print(f"  b={b}  ({2**b:>2d} levels): {np.array2string(hier_bu[b], precision=4, suppress_small=True)}")
+    print(f"  Nesting verified: {verify_nesting(hier_bu)}")
 
-    ok = verify_nesting(hier)
-    print(f"\n  Nesting verified: {ok}")
+    # Top-down hierarchical (decimated from b_max)
+    print("\nTop-down hierarchical Lloyd-Max levels (decimated from b_max):")
+    hier_td = build_top_down_codebooks(BITS)
+    for b in BITS:
+        print(f"  b={b}  ({2**b:>2d} levels): {np.array2string(hier_td[b], precision=4, suppress_small=True)}")
+    print(f"  Nesting verified: {verify_nesting(hier_td)}")
 
     print("\n" + "=" * 78)
-    print("MSE comparison: native vs hierarchical Lloyd-Max")
+    print("MSE comparison: native vs bottom-up nested vs top-down nested")
     print("=" * 78)
-    print(f"{'b':>3s} {'native MSE':>14s} {'hier MSE':>14s} "
-          f"{'gap':>12s} {'gap %':>10s}")
-    print("-" * 60)
-    rows = [("bits", "native_mse", "hier_mse", "gap", "gap_pct")]
+    print(f"{'b':>3s} {'native':>12s} {'bottom-up':>12s} {'top-down':>12s} "
+          f"{'BU gap%':>10s} {'TD gap%':>10s}")
+    print("-" * 70)
+    rows = [("bits", "native_mse", "hier_bu_mse", "hier_td_mse",
+             "bu_gap_pct", "td_gap_pct")]
     for b in BITS:
-        mse_native = empirical_mse(native[b])
-        mse_hier = empirical_mse(hier[b])
-        gap = mse_hier - mse_native
-        gap_pct = 100 * gap / mse_native if mse_native > 0 else 0
-        print(f"{b:>3d} {mse_native:>14.6f} {mse_hier:>14.6f} "
-              f"{gap:>+12.6f} {gap_pct:>+9.2f}%")
-        rows.append((b, mse_native, mse_hier, gap, gap_pct))
+        mse_n = empirical_mse(native[b])
+        mse_bu = empirical_mse(hier_bu[b])
+        mse_td = empirical_mse(hier_td[b])
+        bu_pct = 100 * (mse_bu - mse_n) / mse_n if mse_n > 0 else 0
+        td_pct = 100 * (mse_td - mse_n) / mse_n if mse_n > 0 else 0
+        print(f"{b:>3d} {mse_n:>12.6f} {mse_bu:>12.6f} {mse_td:>12.6f} "
+              f"{bu_pct:>+9.2f}% {td_pct:>+9.2f}%")
+        rows.append((b, mse_n, mse_bu, mse_td, bu_pct, td_pct))
 
     # Save codebooks
     save_dict = {f"native_b{b}": native[b] for b in BITS}
-    save_dict.update({f"hier_b{b}": hier[b] for b in BITS})
+    save_dict.update({f"bu_b{b}": hier_bu[b] for b in BITS})
+    save_dict.update({f"td_b{b}": hier_td[b] for b in BITS})
     np.savez(CODEBOOK_DIR / "hierarchical_gaussian.npz", **save_dict)
     print(f"\nCodebooks saved: {CODEBOOK_DIR / 'hierarchical_gaussian.npz'}")
 
@@ -273,26 +298,25 @@ def main():
     print(f"Metrics CSV:     {metrics_path}")
 
     # ------------------------------------------------------------------
-    # Visualization 1: codebook nesting structure
+    # Visualization 1: bottom-up codebook nesting structure
     # ------------------------------------------------------------------
     fig, ax = plt.subplots(figsize=(12, 6))
     for b in BITS:
-        levels = hier[b]
+        levels = hier_bu[b]
         y = b * np.ones_like(levels)
         ax.scatter(levels, y, s=80, zorder=3, label=f"b={b} ({2**b} levels)")
         for lvl in levels:
             ax.text(lvl, b - 0.18, f"{lvl:+.2f}",
                     ha="center", va="top", fontsize=7, alpha=0.7)
-    # Connect each level to its presence at higher bits (vertical lines)
     for i, b in enumerate(BITS[:-1]):
-        for lvl in hier[b]:
+        for lvl in hier_bu[b]:
             ax.plot([lvl, lvl], [b, b + 1], "k-", alpha=0.25, linewidth=1)
     ax.set_xlabel("Codebook level (in standardized coordinate space)")
     ax.set_ylabel("bits b")
     ax.set_yticks(BITS)
     ax.set_xlim(-3.5, 3.5)
     ax.set_title(
-        "Hierarchical Lloyd-Max codebooks for N(0, 1)\n"
+        "Bottom-up hierarchical Lloyd-Max codebooks for N(0, 1)\n"
         "Vertical lines: a level at b is preserved at b+1 (nesting structure)"
     )
     ax.grid(True, alpha=0.3)
@@ -304,18 +328,18 @@ def main():
     print(f"Figure saved:    {out}")
 
     # ------------------------------------------------------------------
-    # Visualization 2: native vs hierarchical levels side-by-side
+    # Visualization 2: native vs bottom-up vs top-down side-by-side
     # ------------------------------------------------------------------
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5), sharey=True)
     for ax, codebook_set, title in [
         (axes[0], native, "Native (unconstrained) Lloyd-Max"),
-        (axes[1], hier, "Hierarchical (nested) Lloyd-Max"),
+        (axes[1], hier_bu, "Bottom-up nested Lloyd-Max"),
+        (axes[2], hier_td, "Top-down nested Lloyd-Max"),
     ]:
         for b in BITS:
             levels = codebook_set[b]
             y = b * np.ones_like(levels)
             ax.scatter(levels, y, s=70, zorder=3, label=f"b={b}")
-        # Reference: pdf of N(0, 1) at the bottom
         x_ref = np.linspace(-3, 3, 500)
         pdf = np.exp(-x_ref ** 2 / 2) / np.sqrt(2 * np.pi)
         ax.fill_between(x_ref, 1.5, 1.5 + pdf * 1.2, color='gray', alpha=0.2)
@@ -326,7 +350,7 @@ def main():
         ax.grid(True, alpha=0.3)
         ax.legend(loc="upper right", fontsize=9)
     axes[0].set_ylabel("bits b")
-    fig.suptitle("Native vs hierarchical codebook structure (N(0, 1) pdf in gray)",
+    fig.suptitle("Native vs hierarchical codebook strategies (N(0, 1) pdf in gray)",
                  fontsize=12)
     fig.tight_layout()
     out2 = FIGS / "hierarchical_vs_native.png"
@@ -337,20 +361,27 @@ def main():
     # ------------------------------------------------------------------
     # Visualization 3: MSE bar plot — the headline result
     # ------------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(10, 5))
     x = np.arange(len(BITS))
-    width = 0.35
+    width = 0.27
     native_mses = [empirical_mse(native[b]) for b in BITS]
-    hier_mses = [empirical_mse(hier[b]) for b in BITS]
-    bars1 = ax.bar(x - width / 2, native_mses, width,
-                   label="Native Lloyd-Max", color="tab:blue", alpha=0.85)
-    bars2 = ax.bar(x + width / 2, hier_mses, width,
-                   label="Hierarchical Lloyd-Max", color="tab:orange", alpha=0.85)
-    # Annotate gap_pct
+    bu_mses = [empirical_mse(hier_bu[b]) for b in BITS]
+    td_mses = [empirical_mse(hier_td[b]) for b in BITS]
+    ax.bar(x - width, native_mses, width,
+           label="Native (unconstrained)", color="tab:gray", alpha=0.85)
+    bars2 = ax.bar(x, bu_mses, width,
+                   label="Bottom-up nested", color="tab:blue", alpha=0.85)
+    bars3 = ax.bar(x + width, td_mses, width,
+                   label="Top-down nested", color="tab:orange", alpha=0.85)
     for i, b in enumerate(BITS):
-        pct = 100 * (hier_mses[i] - native_mses[i]) / native_mses[i]
-        ax.text(x[i] + width / 2, hier_mses[i],
-                f"+{pct:.1f}%", ha="center", va="bottom", fontsize=9, color="darkred")
+        bu_pct = 100 * (bu_mses[i] - native_mses[i]) / native_mses[i]
+        td_pct = 100 * (td_mses[i] - native_mses[i]) / native_mses[i]
+        if bu_pct > 1:
+            ax.text(x[i], bu_mses[i],
+                    f"+{bu_pct:.0f}%", ha="center", va="bottom", fontsize=8, color="tab:blue")
+        if td_pct > 1:
+            ax.text(x[i] + width, td_mses[i],
+                    f"+{td_pct:.0f}%", ha="center", va="bottom", fontsize=8, color="tab:orange")
     ax.set_yscale("log")
     ax.set_xticks(x)
     ax.set_xticklabels([f"b={b}" for b in BITS])
