@@ -61,7 +61,7 @@ BITS_CHEAP = 2  # prefilter
 BITS_EXPENSIVE = 4  # rerank
 
 # Strategies to test
-STRATEGIES = ["native", "top_down", "bottom_up"]
+STRATEGIES = ["native", "top_down", "bottom_up", "middle_anchor"]
 
 QUERY_BATCH = 512
 N_QUERIES_DEFAULT = 1000
@@ -208,18 +208,19 @@ def two_tier_recall(
 # Build all required codebook combinations
 # ============================================================================
 
-def build_codebooks_for_pipeline(strategy: str, bits_list: list[int]) -> dict[int, np.ndarray]:
-    """For a given strategy, return codebooks at each bit-width.
-
-    Note: for native, each bit-width is unconstrained.
-    For top_down/bottom_up, codebooks share structure (nested).
-    """
+def build_codebooks_for_pipeline(strategy: str, bits_list: list[int], seed: int = 42) -> dict[int, np.ndarray]:
     if strategy == "native":
-        return {b: lloyd_max_unconstrained(2 ** b) for b in bits_list}
+        return {b: lloyd_max_unconstrained(2 ** b, seed=seed) for b in bits_list}
     if strategy == "top_down":
-        return build_top_down_codebooks(bits_list)
+        return build_top_down_codebooks(bits_list, seed=seed)
     if strategy == "bottom_up":
-        return build_hierarchical_codebooks(bits_list)
+        return build_hierarchical_codebooks(bits_list, seed=seed)
+    if strategy == "middle_anchor":
+        from middle_anchor import build_middle_anchor_codebooks
+        # Anchor at b=3; needs to be in bit_widths internally
+        bits_full = sorted(set(bits_list) | {3})
+        cbs = build_middle_anchor_codebooks(bits_full, anchor_bits=3, seed=seed)
+        return {b: cbs[b] for b in bits_list}
     raise ValueError(f"Unknown strategy: {strategy}")
 
 
@@ -346,24 +347,26 @@ def main():
 
 def _plot_two_tier(ds_name: str, ds_results: dict):
     """For each strategy, plot two-tier R@1 vs T, with single-tier reference lines."""
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
+    n_strats = len([s for s in STRATEGIES if s in ds_results])
+    fig, axes = plt.subplots(1, n_strats, figsize=(5 * n_strats, 5), sharey=True)
+    if n_strats == 1:
+        axes = [axes]
 
     color_main = "#1f77b4"
     color_b2 = "#ff7f0e"
     color_b4 = "#2ca02c"
 
-    for ax, strat in zip(axes, STRATEGIES):
-        if strat not in ds_results:
-            continue
+    plot_strats = [s for s in STRATEGIES if s in ds_results]
+    for ax, strat in zip(axes, plot_strats):
         res = ds_results[strat]
         ts = sorted(res["two_tier"].keys())
         tt_r1 = [res["two_tier"][t]["recalls"][1] for t in ts]
         ax.plot(ts, tt_r1, "o-", color=color_main, markersize=8, linewidth=2,
                 label="two-tier (b=2 → b=4)")
         ax.axhline(res["single_b4"][1], color=color_b4, linestyle="--",
-                   linewidth=2, label=f"single b=4 (target)")
+                   linewidth=2, label="single b=4 (target)")
         ax.axhline(res["single_b2"][1], color=color_b2, linestyle=":",
-                   linewidth=2, label=f"single b=2 (prefilter alone)")
+                   linewidth=2, label="single b=2 (prefilter alone)")
         ax.set_xscale("log")
         ax.set_xticks(ts)
         ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right")

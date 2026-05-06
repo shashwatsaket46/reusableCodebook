@@ -36,6 +36,13 @@ FIGS = ROOT / "results" / "figures"
 CODEBOOK_DIR.mkdir(parents=True, exist_ok=True)
 FIGS.mkdir(parents=True, exist_ok=True)
 
+def build_middle_anchor_codebooks_compat(bit_widths, seed=42, anchor_bits=3):
+    """Wrapper for compatibility with run_*_recall.py."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from middle_anchor import build_middle_anchor_codebooks
+    return build_middle_anchor_codebooks(bit_widths, anchor_bits=anchor_bits, seed=seed)
 
 # ============================================================================
 # Sampling
