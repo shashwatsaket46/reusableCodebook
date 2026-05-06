@@ -54,7 +54,7 @@ DATASETS = os.environ.get("DATASETS", " ".join(DATASETS_DEFAULT)).split()
 T_VALUES = [10, 50, 100, 500, 1000, 5000]
 
 # Final R@k metrics
-KS = [1, 4, 32]
+KS = [1, 4,8,16, 32]
 
 # Bit-widths used in the two-tier pipeline
 BITS_CHEAP = 2  # prefilter
