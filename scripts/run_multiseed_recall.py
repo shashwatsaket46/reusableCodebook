@@ -272,8 +272,18 @@ def main():
 def _plot_with_errorbars(ds_name: str, ds_results: dict, ds_targets: dict):
     """R@1 vs T with error bars (mean ± std across seeds), per strategy."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    colors = {"native": "#404040", "top_down": "#ff7f0e", "bottom_up": "#1f77b4"}
-    markers = {"native": "o", "top_down": "s", "bottom_up": "^"}
+    colors = {
+        "native": "#404040",
+        "top_down": "#ff7f0e",
+        "bottom_up": "#1f77b4",
+        "middle_anchor": "#2ca02c",
+    }
+    markers = {
+        "native": "o",
+        "top_down": "s",
+        "bottom_up": "^",
+        "middle_anchor": "D",
+    }
 
     for strat in STRATEGIES:
         if not ds_targets.get(strat):
