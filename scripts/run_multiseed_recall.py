@@ -47,7 +47,7 @@ DATASETS_DEFAULT = ["glove200_100k", "openai1536", "openai3072"]
 DATASETS = os.environ.get("DATASETS", " ".join(DATASETS_DEFAULT)).split()
 
 T_VALUES = [10, 50, 100, 500, 1000]
-KS = [1, 4, 32]
+KS = [1, 4, 8,16,32]
 BITS_CHEAP = 2
 BITS_EXPENSIVE = 4
 STRATEGIES = ["native", "top_down", "bottom_up", "middle_anchor"]
@@ -180,12 +180,10 @@ def main():
 
     csv_path = RESULTS_DIR / "multiseed_recall.csv"
     with open(csv_path, "w", newline="") as f:
-        csv.writer(f).writerow([
-            "dataset", "d", "strategy", "T", "seed",
-            "single_b2_R@1", "single_b4_R@1", "two_tier_R@1",
-            "single_b2_R@4", "single_b4_R@4", "two_tier_R@4",
-            "single_b2_R@32", "single_b4_R@32", "two_tier_R@32",
-        ])
+        header = ["dataset", "d", "strategy", "T", "seed"]
+        for k in [1, 2, 4, 8, 16, 32]:
+            header.extend([f"single_b2_R@{k}", f"single_b4_R@{k}", f"two_tier_R@{k}"])
+        csv.writer(f).writerow(header)
 
     seeds = [base_seed + i for i in range(n_seeds)]
     # results[ds][strat][T] = list of R@1 values across seeds

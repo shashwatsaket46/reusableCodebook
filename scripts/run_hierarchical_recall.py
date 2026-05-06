@@ -50,7 +50,7 @@ DATASETS_DEFAULT = ["glove200_100k", "openai1536", "openai3072"]
 DATASETS = os.environ.get("DATASETS", " ".join(DATASETS_DEFAULT)).split()
 BITS = [2, 3, 4, 5]
 STRATEGIES = ["native", "bottom_up", "top_down"]
-KS = [1, 2, 4, 8, 16, 32, 64]
+KS = [1, 2, 4, 8, 16, 32]
 QUERY_BATCH = 512  # for matmul chunking
 N_QUERIES_DEFAULT = 1000  # subsample for tractability
 
