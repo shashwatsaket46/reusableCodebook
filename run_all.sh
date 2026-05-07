@@ -222,6 +222,10 @@ if [ "$SKIP_PLOTS" != "1" ]; then
         python scripts/plot_recall_summary.py
     fi
     echo
+    if [ -f scripts/plot_unified_recall.py ]; then
+            echo "  -- Unified recall plot"
+            python scripts/plot_unified_recall.py
+    fi
 else
     echo "[10/10] SKIPPED: plotting"; echo
 fi
